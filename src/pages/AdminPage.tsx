@@ -400,7 +400,7 @@ function JobsTab() {
                     {Object.entries(steps).length > 0
                       ? Object.entries(steps).map(([step, s]) => (
                           <span key={step}
-                            className={`text-xs px-1.5 py-0.5 rounded font-mono ${STEP_COLORS[s] ?? 'bg-gray-800 text-gray-400'}`}>
+                            className={`text-xs px-1.5 py-0.5 rounded font-mono ${STEP_COLORS[String(s)] ?? 'bg-gray-800 text-gray-400'}`}>
                             {step}
                           </span>
                         ))
