@@ -297,6 +297,56 @@ export default function PipelinePage() {
               </div>
             )}
 
+            {/* Chapter Audio — only shown when at least one chapter has audio */}
+            {r?.chapters && r.chapters.some(ch => ch.audio_en || ch.audio_ar) && (() => {
+              const audioChapters = r.chapters.filter(ch => ch.audio_en || ch.audio_ar)
+              return (
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
+                    Chapter Audio ({audioChapters.length})
+                  </p>
+                  <div className="space-y-3">
+                    {audioChapters.map(ch => (
+                      <div key={ch.index} className="bg-gray-950 border border-gray-800 rounded-lg p-3">
+                        <div className="flex items-start justify-between gap-3 mb-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm text-gray-200 font-medium truncate">
+                              <span className="text-gray-500 mr-2">{ch.index}.</span>
+                              {ch.title}
+                            </p>
+                            <p className="text-xs text-gray-500 mt-0.5">~{ch.read_time_min} min read</p>
+                          </div>
+                          <div className="flex gap-1 shrink-0">
+                            {ch.audio_en && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-900/40 text-indigo-300 border border-indigo-800 font-mono">EN</span>
+                            )}
+                            {ch.audio_ar && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-900/40 text-emerald-300 border border-emerald-800 font-mono">AR</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {ch.audio_en && (
+                          <div className="mb-2">
+                            <audio controls src={ch.audio_en} className="w-full" style={{ accentColor: '#6366f1' }} />
+                            <a href={ch.audio_en} target="_blank" rel="noreferrer"
+                               className="text-[11px] text-indigo-400 hover:underline mt-1 inline-block">Download EN ↗</a>
+                          </div>
+                        )}
+                        {ch.audio_ar && (
+                          <div>
+                            <audio controls src={ch.audio_ar} className="w-full" style={{ accentColor: '#10b981' }} />
+                            <a href={ch.audio_ar} target="_blank" rel="noreferrer"
+                               className="text-[11px] text-emerald-400 hover:underline mt-1 inline-block">Download AR ↗</a>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* Chapters */}
             {r?.chapters && r.chapters.length > 0 && (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
