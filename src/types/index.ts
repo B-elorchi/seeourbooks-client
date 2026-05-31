@@ -29,12 +29,15 @@ export interface PipelineReq {
 // ── Pipeline result (output JSON) ────────────────────────────────────────────
 
 export interface ChapterResult {
-  index:         number
-  title:         string
-  summary:       string
-  read_time_min: number
-  audio_en?:     string
-  audio_ar?:     string
+  index:          number
+  title:          string
+  summary:        string
+  read_time_min:  number
+  audio_en?:      string
+  audio_ar?:      string
+  mindmap_url?:   string
+  mindmap_format?: 'mermaid' | 'json'
+  mindmap_data?:  unknown      // parsed JSON tree when format = 'json'
 }
 
 export interface AudioAsset {

@@ -347,6 +347,50 @@ export default function PipelinePage() {
               )
             })()}
 
+            {/* Chapter Mindmaps — one mindmap per chapter when the pipeline generated them */}
+            {r?.chapters && r.chapters.some(ch => ch.mindmap_url) && (() => {
+              const mmChapters = r.chapters.filter(ch => ch.mindmap_url)
+              return (
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
+                    Chapter Mindmaps ({mmChapters.length})
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {mmChapters.map(ch => (
+                      <div key={ch.index} className="bg-gray-950 border border-gray-800 rounded-lg p-3">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <p className="text-sm text-gray-200 font-medium truncate">
+                            <span className="text-gray-500 mr-2">{ch.index}.</span>
+                            {ch.title}
+                          </p>
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fuchsia-900/40 text-fuchsia-300 border border-fuchsia-800 font-mono shrink-0">
+                            {ch.mindmap_format ?? 'mindmap'}
+                          </span>
+                        </div>
+
+                        {/* Mermaid mindmaps are SVG — render with <iframe>. JSON renders the structure as text. */}
+                        {ch.mindmap_format === 'json' && ch.mindmap_data ? (
+                          <pre className="text-[11px] text-gray-400 bg-gray-900 border border-gray-800 rounded p-2 overflow-auto max-h-40">
+                            {JSON.stringify(ch.mindmap_data, null, 2)}
+                          </pre>
+                        ) : ch.mindmap_url ? (
+                          <iframe src={ch.mindmap_url} title={`Mindmap ${ch.index}`}
+                                  className="w-full h-40 rounded border border-gray-700 bg-white" />
+                        ) : null}
+
+                        {ch.mindmap_url && (
+                          <a href={ch.mindmap_url} target="_blank" rel="noreferrer"
+                             className="text-[11px] text-fuchsia-400 hover:underline mt-2 inline-block">
+                            Open ↗
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* Chapters */}
             {r?.chapters && r.chapters.length > 0 && (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
