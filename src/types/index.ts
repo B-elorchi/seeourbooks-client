@@ -132,3 +132,19 @@ export interface AdminCosts {
   by_step:         CostByStep[]
   by_model:        CostByModel[]
 }
+
+// ── OpenRouter live model list ───────────────────────────────────────────────
+
+export interface OpenRouterModel {
+  id:       string         // e.g. "google/gemini-2.5-flash-image"
+  name:     string         // e.g. "Google: Gemini 2.5 Flash Image"
+  context?: number | null  // context_length when present
+}
+
+export type OpenRouterModality = 'all' | 'image' | 'vision' | 'chat'
+
+export interface OpenRouterModelsResponse {
+  modality: OpenRouterModality
+  count:    number
+  models:   OpenRouterModel[]
+}

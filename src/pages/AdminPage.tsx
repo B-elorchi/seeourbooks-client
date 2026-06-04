@@ -1,5 +1,8 @@
-import { useState, useEffect } from 'react'
-import { getConfig, setConfig, getMetrics, getAdminJobs, retryJob, getCosts } from '../api/admin'
+import { useState, useEffect, useMemo, useRef } from 'react'
+import {
+  getConfig, setConfig, getMetrics, getAdminJobs, retryJob, getCosts,
+  getOpenRouterModels,
+} from '../api/admin'
 import type { AdminMetrics, PipelineJob, AdminCosts } from '../types'
 import StatusBadge from '../components/StatusBadge'
 
@@ -25,17 +28,32 @@ const OR_GPT    = GPT_CHAT_MODELS.map(m => `openai/${m}`)
 
 // ── Option group type ─────────────────────────────────────────────────────────
 // Each option list can be flat strings (no grouping) or grouped with a label.
-// Set type:'text' to render a free-text input instead of a select dropdown.
+// type:
+//   undefined → <select> dropdown (default)
+//   'text'    → free-text <input> only
+//   'combo'   → <select> dropdown with an extra "✏️ Other (custom)…" item;
+//               picking it reveals a text input where the user types any value
 type OptGroup = { group: string; items: string[] }
 type OptionList = Array<string | OptGroup>
+type RowType = 'text' | 'combo'
 
 // Helpers to build grouped lists cleanly
 const g = (group: string, items: string[]): OptGroup => ({ group, items })
 
+// Flatten OptionList → plain string[] (used by the searchable combo to detect custom values).
+function flattenOptions(opts: OptionList): string[] {
+  const out: string[] = []
+  for (const o of opts) {
+    if (typeof o === 'string') out.push(o)
+    else out.push(...o.items)
+  }
+  return out
+}
+
 // ── Config rows ───────────────────────────────────────────────────────────────
 const PROVIDER_GROUPS: Array<{
   title: string
-  rows: Array<{ key: string; label: string; options: OptionList; type?: 'text'; placeholder?: string }>
+  rows: Array<{ key: string; label: string; options: OptionList; type?: RowType; placeholder?: string }>
 }> = [
   {
     title: 'Summarization',
@@ -119,7 +137,18 @@ const PROVIDER_GROUPS: Array<{
     title: 'Cover Image',
     rows: [
       {
-        key: 'IMAGE_MODEL', label: 'Model',
+        key: 'IMAGE_MODEL_EN', label: 'Model (EN)',
+        type: 'combo',
+        placeholder: 'Pick or type any OpenRouter / OpenAI model name…',
+        options: [
+          g('🟢 OpenAI — Native API',   OPENAI_IMG_MODELS),
+          g('🔀 OpenRouter → FLUX / Gemini / SD', OR_IMG_MODELS),
+        ],
+      },
+      {
+        key: 'IMAGE_MODEL_AR', label: 'Model (AR)',
+        type: 'combo',
+        placeholder: 'Pick or type any OpenRouter / OpenAI model name…',
         options: [
           g('🟢 OpenAI — Native API',   OPENAI_IMG_MODELS),
           g('🔀 OpenRouter → FLUX / Gemini / SD', OR_IMG_MODELS),
@@ -177,6 +206,48 @@ const PROVIDER_GROUPS: Array<{
       { key: 'PIPELINE_STEP_AUDIO_PROCESSING', label: 'Audio Processing', options: ['true', 'false'] },
     ],
   },
+  {
+    title: 'Reliability — Model Fallback',
+    rows: [
+      {
+        key: 'ENABLE_MODEL_FALLBACK',
+        label: 'Auto-fallback on model failure',
+        options: ['true', 'false'],
+      },
+      {
+        // Optional per-model overrides — comma-separated list of fallback models
+        // tried in order when the primary fails with a recoverable error
+        // (credit out, rate-limit, 5xx, timeout). Leave blank to use the
+        // built-in default chain in ai_client.py.
+        key: 'FALLBACK_claude-haiku-4-5-20251001',
+        label: 'Fallback chain — Haiku',
+        options: [],
+        type: 'text',
+        placeholder: 'anthropic/claude-haiku-4-5, openai/gpt-4.1-mini, gpt-4.1-mini',
+      },
+      {
+        key: 'FALLBACK_claude-sonnet-4-6',
+        label: 'Fallback chain — Sonnet',
+        options: [],
+        type: 'text',
+        placeholder: 'anthropic/claude-sonnet-4-6, openai/gpt-4.1, gpt-4.1',
+      },
+      {
+        key: 'FALLBACK_claude-opus-4-7',
+        label: 'Fallback chain — Opus',
+        options: [],
+        type: 'text',
+        placeholder: 'anthropic/claude-opus-4-7, openai/gpt-4.1, gpt-4.1',
+      },
+      {
+        key: 'FALLBACK_gpt-4.1-mini',
+        label: 'Fallback chain — gpt-4.1-mini',
+        options: [],
+        type: 'text',
+        placeholder: 'openai/gpt-4.1-mini, anthropic/claude-haiku-4-5, claude-haiku-4-5',
+      },
+    ],
+  },
 ]
 
 // ── Provider badge ────────────────────────────────────────────────────────────
@@ -216,6 +287,170 @@ function timeAgo(iso: string) {
   return `${Math.floor(m / 60)}h ago`
 }
 
+// ── Searchable popover dropdown ──────────────────────────────────────────────
+// Used by combo-type rows so users can search through hundreds of live
+// OpenRouter models instead of scrolling a giant native <select>.
+//
+// Behaviour:
+//   - Closed state shows the current value (or placeholder) in a button.
+//   - Click opens a popover with a search box + filtered, grouped list.
+//   - Typing filters across every option in every group.
+//   - If the typed query doesn't match an option, a "Use {query} as custom"
+//     row appears at the bottom — same UX as the previous "Other..." entry.
+//   - Click outside / press Escape to close.
+
+function SearchableSelect({
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  value: string
+  options: OptionList
+  placeholder?: string
+  onChange: (v: string) => void
+}) {
+  const [open, setOpen]     = useState(false)
+  const [query, setQuery]   = useState('')
+  const wrapperRef          = useRef<HTMLDivElement>(null)
+
+  // Close on click outside
+  useEffect(() => {
+    if (!open) return
+    function handler(e: MouseEvent) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+        setOpen(false)
+        setQuery('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  // Filter the option list against the search query
+  const matches = (s: string) =>
+    !query || s.toLowerCase().includes(query.toLowerCase())
+
+  const flatTop:    string[]   = []
+  const grouped:    OptGroup[] = []
+  for (const o of options) {
+    if (typeof o === 'string') {
+      if (matches(o)) flatTop.push(o)
+    } else {
+      const items = o.items.filter(matches)
+      if (items.length > 0) grouped.push({ group: o.group, items })
+    }
+  }
+
+  // "Use custom value" row appears when the query doesn't exactly match any
+  // existing option — lets the admin paste in fresh model ids.
+  const allValues = flattenOptions(options)
+  const showCustomCommit = query.trim() !== '' && !allValues.includes(query.trim())
+
+  function commit(v: string) {
+    onChange(v)
+    setOpen(false)
+    setQuery('')
+  }
+
+  const totalMatches = flatTop.length + grouped.reduce((s, g) => s + g.items.length, 0)
+
+  return (
+    <div ref={wrapperRef} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 w-[320px] text-left flex items-center justify-between gap-2 hover:border-gray-600"
+      >
+        <span className={`truncate ${value ? 'font-mono' : 'text-gray-500'}`}>
+          {value || placeholder || 'Select…'}
+        </span>
+        <span className="text-gray-500 text-xs">▾</span>
+      </button>
+
+      {open && (
+        <div className="absolute z-20 right-0 top-full mt-1 w-[360px] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl">
+          <input
+            type="text"
+            autoFocus
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Escape') { setOpen(false); setQuery('') }
+              if (e.key === 'Enter' && showCustomCommit) {
+                commit(query.trim())
+              }
+            }}
+            placeholder="Search models…  (or paste a custom name)"
+            className="w-full px-3 py-2 bg-gray-950 border-b border-gray-800 text-sm text-gray-100 focus:outline-none placeholder:text-gray-600"
+          />
+
+          <div className="max-h-72 overflow-y-auto">
+            {/* Flat (ungrouped) options */}
+            {flatTop.map(opt => (
+              <button
+                key={opt}
+                type="button"
+                onClick={() => commit(opt)}
+                className={`block w-full text-left px-3 py-1.5 text-sm font-mono hover:bg-indigo-700/40 ${
+                  value === opt ? 'bg-indigo-900/40 text-indigo-200' : 'text-gray-200'
+                }`}
+              >
+                {opt}
+              </button>
+            ))}
+
+            {/* Grouped options */}
+            {grouped.map(grp => (
+              <div key={grp.group}>
+                <div className="sticky top-0 px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500 bg-gray-900/95 border-b border-gray-800">
+                  {grp.group}
+                </div>
+                {grp.items.map(opt => (
+                  <button
+                    key={opt}
+                    type="button"
+                    onClick={() => commit(opt)}
+                    className={`block w-full text-left px-3 py-1.5 text-sm font-mono hover:bg-indigo-700/40 ${
+                      value === opt ? 'bg-indigo-900/40 text-indigo-200' : 'text-gray-200'
+                    }`}
+                  >
+                    {opt}
+                  </button>
+                ))}
+              </div>
+            ))}
+
+            {/* Empty state */}
+            {totalMatches === 0 && !showCustomCommit && (
+              <div className="px-3 py-4 text-center text-sm text-gray-500">
+                No models match “{query}”
+              </div>
+            )}
+
+            {/* Commit-as-custom row */}
+            {showCustomCommit && (
+              <button
+                type="button"
+                onClick={() => commit(query.trim())}
+                className="block w-full text-left px-3 py-2 text-sm hover:bg-indigo-700/40 border-t border-gray-800 text-gray-300"
+              >
+                ✏️ Use “<span className="font-mono text-indigo-300">{query.trim()}</span>” as custom
+              </button>
+            )}
+          </div>
+
+          <div className="px-3 py-1.5 border-t border-gray-800 text-[11px] text-gray-600 flex justify-between">
+            <span>{totalMatches} model{totalMatches === 1 ? '' : 's'}</span>
+            <span>Esc to close · Enter to use custom</span>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 // ── Providers tab ─────────────────────────────────────────────────────────────
 
 function ProvidersTab() {
@@ -223,6 +458,12 @@ function ProvidersTab() {
   const [saving,  setSaving]      = useState<string | null>(null)
   const [saved,   setSaved]       = useState<string | null>(null)
   const [loading, setLoading]     = useState(true)
+  // Live OpenRouter model lists — fetched once per tab mount.  Server-side
+  // caches each modality for an hour, so refreshing the page is cheap.
+  // Falls back to the hardcoded lists on failure.
+  const [orImageModels, setOrImageModels] = useState<string[] | null>(null)
+  const [orChatModels,  setOrChatModels]  = useState<string[] | null>(null)
+  const [orVisionModels, setOrVisionModels] = useState<string[] | null>(null)
 
   useEffect(() => {
     getConfig()
@@ -230,6 +471,88 @@ function ProvidersTab() {
       .catch(() => {/* fallback to dropdown defaults */})
       .finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    // Kick off all three live lists in parallel — independent of each other,
+    // each one falls back independently if its request fails.
+    getOpenRouterModels('image')
+      .then(r => { if (r.models?.length) setOrImageModels(r.models.map(m => m.id)) })
+      .catch(() => {})
+    getOpenRouterModels('chat')
+      .then(r => { if (r.models?.length) setOrChatModels(r.models.map(m => m.id)) })
+      .catch(() => {})
+    getOpenRouterModels('vision')
+      .then(r => { if (r.models?.length) setOrVisionModels(r.models.map(m => m.id)) })
+      .catch(() => {})
+  }, [])
+
+  // Build the live PROVIDER_GROUPS by injecting the live OpenRouter lists
+  // into the dropdowns for image, chat, and vision model rows.
+  const providerGroups = useMemo(() => {
+    // ── Image rows: IMAGE_MODEL_EN, IMAGE_MODEL_AR ──────────────────────────
+    const liveImage = orImageModels && orImageModels.length > 0 ? orImageModels : OR_IMG_MODELS
+    const liveImageLabel = orImageModels && orImageModels.length > 0
+      ? `🔀 OpenRouter — Live (${liveImage.length} image models)`
+      : '🔀 OpenRouter → FLUX / Gemini / SD'
+
+    // ── Chat rows: MODEL_HAIKU, MODEL_SONNET, MODEL_OPUS, MODEL_MINDMAP ─────
+    // Live list contains 200+ models; admin can search.  Hardcoded native
+    // Claude / GPT lists stay at the top so common picks are still 1-click.
+    const liveChat = orChatModels && orChatModels.length > 0 ? orChatModels : null
+    const liveChatLabel = liveChat
+      ? `🔀 OpenRouter — Live (${liveChat.length} chat models)`
+      : '🔀 OpenRouter'
+
+    // ── Vision rows: ALTTEXT_MODEL_EN, ALTTEXT_MODEL_AR ─────────────────────
+    const liveVision = orVisionModels && orVisionModels.length > 0 ? orVisionModels : null
+    const liveVisionLabel = liveVision
+      ? `🔀 OpenRouter — Live (${liveVision.length} vision models)`
+      : '🔀 OpenRouter'
+
+    // Per-row options builders
+    const buildChatOptions = (existing: OptionList): OptionList => {
+      const base = existing.filter(o => typeof o !== 'string') as OptGroup[]
+      const native = base.filter(g => !g.group.startsWith('🔀'))
+      return liveChat
+        ? [...native, g(liveChatLabel, liveChat)]
+        : existing
+    }
+
+    const buildVisionOptions = (existing: OptionList): OptionList => {
+      const base = existing.filter(o => typeof o !== 'string') as OptGroup[]
+      const native = base.filter(g => !g.group.startsWith('🔀'))
+      return liveVision
+        ? [...native, g(liveVisionLabel, liveVision)]
+        : existing
+    }
+
+    const CHAT_ROW_KEYS = new Set(['MODEL_HAIKU', 'MODEL_SONNET', 'MODEL_OPUS', 'MODEL_MINDMAP'])
+    const VISION_ROW_KEYS = new Set(['ALTTEXT_MODEL_EN', 'ALTTEXT_MODEL_AR'])
+    const IMAGE_ROW_KEYS = new Set(['IMAGE_MODEL_EN', 'IMAGE_MODEL_AR'])
+
+    return PROVIDER_GROUPS.map(group => ({
+      ...group,
+      rows: group.rows.map(row => {
+        if (IMAGE_ROW_KEYS.has(row.key)) {
+          return {
+            ...row,
+            type: 'combo' as RowType,
+            options: [
+              g('🟢 OpenAI — Native API', OPENAI_IMG_MODELS),
+              g(liveImageLabel, liveImage),
+            ] as OptionList,
+          }
+        }
+        if (CHAT_ROW_KEYS.has(row.key)) {
+          return { ...row, type: 'combo' as RowType, options: buildChatOptions(row.options) }
+        }
+        if (VISION_ROW_KEYS.has(row.key)) {
+          return { ...row, type: 'combo' as RowType, options: buildVisionOptions(row.options) }
+        }
+        return row
+      }),
+    }))
+  }, [orImageModels, orChatModels, orVisionModels])
 
   async function handleChange(key: string, value: string) {
     setConfigState(prev => ({ ...prev, [key]: value }))
@@ -246,7 +569,7 @@ function ProvidersTab() {
 
   return (
     <div className="space-y-6">
-      {PROVIDER_GROUPS.map(group => (
+      {providerGroups.map(group => (
         <div key={group.title} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
           <div className="px-5 py-3 border-b border-gray-800">
             <h2 className="text-sm font-semibold text-gray-200">{group.title}</h2>
@@ -290,6 +613,13 @@ function ProvidersTab() {
                         onChange={e => handleChange(row.key, e.target.value)}
                         onBlur={e => handleChange(row.key, e.target.value)}
                         className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 w-[280px] placeholder:text-gray-600"
+                      />
+                    ) : row.type === 'combo' ? (
+                      <SearchableSelect
+                        value={current}
+                        options={row.options}
+                        placeholder={row.placeholder ?? 'Pick or search a model…'}
+                        onChange={v => handleChange(row.key, v)}
                       />
                     ) : (
                     <select

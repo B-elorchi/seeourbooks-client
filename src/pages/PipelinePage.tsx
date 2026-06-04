@@ -340,6 +340,33 @@ export default function PipelinePage() {
                                className="text-[11px] text-emerald-400 hover:underline mt-1 inline-block">Download AR ↗</a>
                           </div>
                         )}
+
+                        {/* Chapter summary — collapsible so the card stays compact when many chapters are listed.
+                            Direction inherits from the active summary's language so Arabic books render RTL. */}
+                        {ch.summary && (() => {
+                          const isArabic =
+                            (summaryEntry?.language === 'ar') ||
+                            (!!ch.audio_ar && !ch.audio_en)
+                          return (
+                            <details className="mt-3 border-t border-gray-800/80 pt-2 group/sum">
+                              <summary className="text-[11px] uppercase tracking-wide text-gray-500 cursor-pointer select-none hover:text-gray-300 flex items-center gap-1.5">
+                                <span className="transition-transform group-open/sum:rotate-90 inline-block">▸</span>
+                                <span>Chapter summary</span>
+                                <span className="text-gray-600 normal-case ml-1">
+                                  · {ch.summary.split(/\s+/).filter(Boolean).length} words
+                                </span>
+                              </summary>
+                              <p
+                                dir={isArabic ? 'rtl' : 'ltr'}
+                                className={`mt-2 text-xs text-gray-300 leading-relaxed whitespace-pre-wrap ${
+                                  isArabic ? 'font-arabic text-right' : ''
+                                }`}
+                              >
+                                {ch.summary}
+                              </p>
+                            </details>
+                          )
+                        })()}
                       </div>
                     ))}
                   </div>

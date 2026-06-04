@@ -1,4 +1,4 @@
-import type { AdminMetrics, PipelineJob, AdminCosts } from '../types'
+import type { AdminMetrics, PipelineJob, AdminCosts, OpenRouterModelsResponse, OpenRouterModality } from '../types'
 import { apiUrl } from './client'
 
 // ── Provider config ───────────────────────────────────────────────────────────
@@ -44,6 +44,16 @@ export async function retryJob(jobId: string): Promise<{ job_id: string; status:
 
 export async function getCosts(days = 30): Promise<AdminCosts> {
   const res = await fetch(apiUrl(`/api/admin/costs?days=${days}`))
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+// ── OpenRouter live model list (cached server-side for 1h) ──────────────────
+
+export async function getOpenRouterModels(
+  modality: OpenRouterModality = 'all',
+): Promise<OpenRouterModelsResponse> {
+  const res = await fetch(apiUrl(`/api/admin/openrouter-models?modality=${modality}`))
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
