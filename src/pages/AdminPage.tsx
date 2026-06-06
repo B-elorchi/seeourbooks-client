@@ -1,9 +1,11 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import {
   getConfig, setConfig, getMetrics, getAdminJobs, retryJob, getCosts,
   getOpenRouterModels,
+  getCatalogTables, getCatalog,
 } from '../api/admin'
-import type { AdminMetrics, PipelineJob, AdminCosts } from '../types'
+import type { AdminMetrics, PipelineJob, AdminCosts, CatalogTableMeta } from '../types'
 import StatusBadge from '../components/StatusBadge'
 
 // ── Provider groups (Providers tab) ──────────────────────────────────────────
@@ -204,6 +206,130 @@ const PROVIDER_GROUPS: Array<{
       { key: 'PIPELINE_STEP_MINDMAP',          label: 'Mind Map',         options: ['true', 'false'] },
       { key: 'PIPELINE_STEP_ALTTEXT',          label: 'Alt Text',         options: ['true', 'false'] },
       { key: 'PIPELINE_STEP_AUDIO_PROCESSING', label: 'Audio Processing', options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_INJECT_EPUB',      label: 'Inject EPUB',      options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_VIDEO',            label: 'Video',            options: ['true', 'false'] },
+    ],
+  },
+  {
+    title: 'Video Generation',
+    rows: [
+      {
+        key: 'VIDEO_PROVIDER',
+        label: 'Provider',
+        options: [
+          'moviepy',
+          'svd',
+          'cogvideox',
+        ],
+      },
+      {
+        key: 'VIDEO_ORIENTATION',
+        label: 'Orientation',
+        options: ['portrait', 'landscape'],
+      },
+      {
+        key: 'VIDEO_FPS',
+        label: 'Frame rate',
+        options: ['24', '30', '60'],
+      },
+      {
+        key: 'VIDEO_BITRATE',
+        label: 'Bitrate',
+        options: ['2500k', '3500k', '5000k', '8000k'],
+      },
+    ],
+  },
+  {
+    title: 'EPUB Source',
+    rows: [
+      {
+        key: 'BOOK_FILES_BASE_URL',
+        label: 'Base URL for /books/{english|arabic}/{book_id}.epub',
+        options: [],
+        type: 'text',
+        placeholder: 'https://files.seeourbooks.com',
+      },
+    ],
+  },
+  {
+    title: 'Documents Pipeline (PDF → OCR → AI)',
+    rows: [
+      {
+        key: 'DOC_AI_PROVIDER',
+        label: 'AI Provider',
+        options: ['openrouter', 'deepseek', 'openai', 'claude'],
+      },
+      {
+        // Live list of OpenRouter chat models is injected dynamically in
+        // ProvidersTab.useMemo — same treatment as MODEL_HAIKU / SONNET / OPUS.
+        // Hardcoded fallbacks below show as a quick-pick when the live list
+        // hasn't loaded yet (cold start, OpenRouter unreachable, etc.).
+        key: 'DOC_AI_MODEL',
+        label: 'AI Model',
+        type: 'combo',
+        placeholder: 'deepseek/deepseek-chat',
+        options: [
+          g('🌟 Recommended (OpenRouter — cheap)', [
+            'deepseek/deepseek-chat',           // DeepSeek V3 — $0.14 / 1M tokens
+            'deepseek/deepseek-chat-v3-0324',   // Pinned snapshot
+            'google/gemini-2.5-flash-preview',
+            'qwen/qwen2.5-72b-instruct',
+          ]),
+          g('💎 OpenRouter — higher quality', [
+            'anthropic/claude-sonnet-4-6',
+            'openai/gpt-4.1-mini',
+            'openai/gpt-4.1',
+            'meta-llama/llama-3.3-70b-instruct',
+          ]),
+          g('🟣 Native Anthropic (uses ANTHROPIC_API_KEY)', CLAUDE_MODELS),
+          g('🟢 Native OpenAI (uses OPENAI_API_KEY)',      GPT_CHAT_MODELS),
+        ],
+      },
+      {
+        key: 'DOC_OCR_LANGUAGES',
+        label: 'OCR Languages (tesseract codes)',
+        options: [],
+        type: 'text',
+        placeholder: 'ara+eng',
+      },
+      {
+        key: 'DOC_CHUNK_SIZE_WORDS',
+        label: 'Chunk size (words per knowledge_chunks row)',
+        options: [],
+        type: 'text',
+        placeholder: '750',
+      },
+      {
+        key: 'EMBEDDING_PROVIDER',
+        label: 'Embedding Provider',
+        // (empty option = disabled — chunks saved without vectors)
+        // openrouter = any vendor/model via your OPENROUTER_API_KEY
+        // openai     = native OpenAI API key
+        // deepseek   = native DeepSeek API key
+        options: ['', 'openrouter', 'openai', 'deepseek'],
+      },
+      {
+        key: 'EMBEDDING_MODEL',
+        label: 'Embedding Model',
+        type: 'combo',
+        placeholder: 'openai/text-embedding-3-small',
+        options: [
+          g('🌟 Recommended (OpenRouter)', [
+            'openai/text-embedding-3-small',     // cheap, fast, 1536 dims
+            'openai/text-embedding-3-large',     // higher quality, 3072 dims
+            'voyageai/voyage-3',                 // best for retrieval
+            'voyageai/voyage-3-large',
+            'mistralai/mistral-embed',
+            'cohere/embed-multilingual-v3.0',    // best for Arabic + multilingual
+            'cohere/embed-english-v3.0',
+          ]),
+          g('🟢 OpenAI native (uses OPENAI_API_KEY)', [
+            'text-embedding-3-small',
+            'text-embedding-3-large',
+            'text-embedding-ada-002',
+          ]),
+        ],
+      },
     ],
   },
   {
@@ -310,15 +436,53 @@ function SearchableSelect({
   placeholder?: string
   onChange: (v: string) => void
 }) {
-  const [open, setOpen]     = useState(false)
-  const [query, setQuery]   = useState('')
-  const wrapperRef          = useRef<HTMLDivElement>(null)
+  const [open, setOpen]         = useState(false)
+  const [query, setQuery]       = useState('')
+  const [pos, setPos]           = useState<{ top: number; left: number; width: number } | null>(null)
+  const buttonRef               = useRef<HTMLButtonElement>(null)
+  const popoverRef              = useRef<HTMLDivElement>(null)
 
-  // Close on click outside
+  const POPOVER_WIDTH = 360
+
+  // Recompute popover position relative to the button — keeps it pinned
+  // even as the user scrolls the admin panel.
+  function updatePosition() {
+    const btn = buttonRef.current
+    if (!btn) return
+    const rect = btn.getBoundingClientRect()
+    // Anchor the popover's right edge to the button's right edge.
+    const left = Math.max(8, rect.right - POPOVER_WIDTH)
+    // Drop down by default; if the popover would clip the bottom of the
+    // viewport, flip it above the button instead.
+    let top = rect.bottom + 4
+    const estimatedHeight = 360
+    if (top + estimatedHeight > window.innerHeight && rect.top > estimatedHeight) {
+      top = rect.top - estimatedHeight - 4
+    }
+    setPos({ top, left, width: POPOVER_WIDTH })
+  }
+
+  useEffect(() => {
+    if (!open) return
+    updatePosition()
+    window.addEventListener('scroll', updatePosition, true)
+    window.addEventListener('resize', updatePosition)
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true)
+      window.removeEventListener('resize', updatePosition)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  // Close on click outside — check both the button AND the portal'd popover
+  // because they live in different DOM trees.
   useEffect(() => {
     if (!open) return
     function handler(e: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+      const target = e.target as Node
+      const insideButton  = buttonRef.current?.contains(target)
+      const insidePopover = popoverRef.current?.contains(target)
+      if (!insideButton && !insidePopover) {
         setOpen(false)
         setQuery('')
       }
@@ -355,39 +519,55 @@ function SearchableSelect({
 
   const totalMatches = flatTop.length + grouped.reduce((s, g) => s + g.items.length, 0)
 
-  return (
-    <div ref={wrapperRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(o => !o)}
-        className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 w-[320px] text-left flex items-center justify-between gap-2 hover:border-gray-600"
-      >
-        <span className={`truncate ${value ? 'font-mono' : 'text-gray-500'}`}>
-          {value || placeholder || 'Select…'}
-        </span>
-        <span className="text-gray-500 text-xs">▾</span>
-      </button>
+  // ── Popover (rendered via Portal at document.body to escape parent
+  //    overflow-hidden + create its own stacking context) ────────────────
+  const popover = open && pos ? (
+    <div
+      ref={popoverRef}
+      style={{
+        position: 'fixed',
+        top:      pos.top,
+        left:     pos.left,
+        width:    pos.width,
+        zIndex:   9999,
+      }}
+      className="bg-gray-900 border border-gray-700 rounded-lg shadow-2xl"
+    >
+      <input
+        type="text"
+        autoFocus
+        value={query}
+        onChange={e => setQuery(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Escape') { setOpen(false); setQuery('') }
+          if (e.key === 'Enter' && showCustomCommit) commit(query.trim())
+        }}
+        placeholder="Search models…  (or paste a custom name)"
+        className="w-full px-3 py-2 bg-gray-950 border-b border-gray-800 text-sm text-gray-100 focus:outline-none placeholder:text-gray-600 rounded-t-lg"
+      />
 
-      {open && (
-        <div className="absolute z-20 right-0 top-full mt-1 w-[360px] bg-gray-900 border border-gray-700 rounded-lg shadow-2xl">
-          <input
-            type="text"
-            autoFocus
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Escape') { setOpen(false); setQuery('') }
-              if (e.key === 'Enter' && showCustomCommit) {
-                commit(query.trim())
-              }
-            }}
-            placeholder="Search models…  (or paste a custom name)"
-            className="w-full px-3 py-2 bg-gray-950 border-b border-gray-800 text-sm text-gray-100 focus:outline-none placeholder:text-gray-600"
-          />
+      <div className="max-h-72 overflow-y-auto">
+        {/* Flat (ungrouped) options */}
+        {flatTop.map(opt => (
+          <button
+            key={opt}
+            type="button"
+            onClick={() => commit(opt)}
+            className={`block w-full text-left px-3 py-1.5 text-sm font-mono hover:bg-indigo-700/40 ${
+              value === opt ? 'bg-indigo-900/40 text-indigo-200' : 'text-gray-200'
+            }`}
+          >
+            {opt}
+          </button>
+        ))}
 
-          <div className="max-h-72 overflow-y-auto">
-            {/* Flat (ungrouped) options */}
-            {flatTop.map(opt => (
+        {/* Grouped options */}
+        {grouped.map(grp => (
+          <div key={grp.group}>
+            <div className="sticky top-0 px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500 bg-gray-900/95 border-b border-gray-800">
+              {grp.group}
+            </div>
+            {grp.items.map(opt => (
               <button
                 key={opt}
                 type="button"
@@ -399,54 +579,51 @@ function SearchableSelect({
                 {opt}
               </button>
             ))}
-
-            {/* Grouped options */}
-            {grouped.map(grp => (
-              <div key={grp.group}>
-                <div className="sticky top-0 px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500 bg-gray-900/95 border-b border-gray-800">
-                  {grp.group}
-                </div>
-                {grp.items.map(opt => (
-                  <button
-                    key={opt}
-                    type="button"
-                    onClick={() => commit(opt)}
-                    className={`block w-full text-left px-3 py-1.5 text-sm font-mono hover:bg-indigo-700/40 ${
-                      value === opt ? 'bg-indigo-900/40 text-indigo-200' : 'text-gray-200'
-                    }`}
-                  >
-                    {opt}
-                  </button>
-                ))}
-              </div>
-            ))}
-
-            {/* Empty state */}
-            {totalMatches === 0 && !showCustomCommit && (
-              <div className="px-3 py-4 text-center text-sm text-gray-500">
-                No models match “{query}”
-              </div>
-            )}
-
-            {/* Commit-as-custom row */}
-            {showCustomCommit && (
-              <button
-                type="button"
-                onClick={() => commit(query.trim())}
-                className="block w-full text-left px-3 py-2 text-sm hover:bg-indigo-700/40 border-t border-gray-800 text-gray-300"
-              >
-                ✏️ Use “<span className="font-mono text-indigo-300">{query.trim()}</span>” as custom
-              </button>
-            )}
           </div>
+        ))}
 
-          <div className="px-3 py-1.5 border-t border-gray-800 text-[11px] text-gray-600 flex justify-between">
-            <span>{totalMatches} model{totalMatches === 1 ? '' : 's'}</span>
-            <span>Esc to close · Enter to use custom</span>
+        {/* Empty state */}
+        {totalMatches === 0 && !showCustomCommit && (
+          <div className="px-3 py-4 text-center text-sm text-gray-500">
+            No models match “{query}”
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Commit-as-custom row */}
+        {showCustomCommit && (
+          <button
+            type="button"
+            onClick={() => commit(query.trim())}
+            className="block w-full text-left px-3 py-2 text-sm hover:bg-indigo-700/40 border-t border-gray-800 text-gray-300"
+          >
+            ✏️ Use “<span className="font-mono text-indigo-300">{query.trim()}</span>” as custom
+          </button>
+        )}
+      </div>
+
+      <div className="px-3 py-1.5 border-t border-gray-800 text-[11px] text-gray-600 flex justify-between rounded-b-lg">
+        <span>{totalMatches} model{totalMatches === 1 ? '' : 's'}</span>
+        <span>Esc to close · Enter to use custom</span>
+      </div>
     </div>
+  ) : null
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 w-[320px] text-left flex items-center justify-between gap-2 hover:border-gray-600"
+      >
+        <span className={`truncate ${value ? 'font-mono' : 'text-gray-500'}`}>
+          {value || placeholder || 'Select…'}
+        </span>
+        <span className="text-gray-500 text-xs">▾</span>
+      </button>
+
+      {popover && createPortal(popover, document.body)}
+    </>
   )
 }
 
@@ -526,7 +703,12 @@ function ProvidersTab() {
         : existing
     }
 
-    const CHAT_ROW_KEYS = new Set(['MODEL_HAIKU', 'MODEL_SONNET', 'MODEL_OPUS', 'MODEL_MINDMAP'])
+    const CHAT_ROW_KEYS = new Set([
+      'MODEL_HAIKU', 'MODEL_SONNET', 'MODEL_OPUS', 'MODEL_MINDMAP',
+      // DOC_AI_MODEL: documents pipeline summary + structured JSON.
+      // Inherits the same searchable live-OpenRouter combo treatment.
+      'DOC_AI_MODEL',
+    ])
     const VISION_ROW_KEYS = new Set(['ALTTEXT_MODEL_EN', 'ALTTEXT_MODEL_AR'])
     const IMAGE_ROW_KEYS = new Set(['IMAGE_MODEL_EN', 'IMAGE_MODEL_AR'])
 
@@ -570,7 +752,7 @@ function ProvidersTab() {
   return (
     <div className="space-y-6">
       {providerGroups.map(group => (
-        <div key={group.title} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <div key={group.title} className="bg-gray-900 border border-gray-800 rounded-xl overflow-visible">
           <div className="px-5 py-3 border-b border-gray-800">
             <h2 className="text-sm font-semibold text-gray-200">{group.title}</h2>
           </div>
@@ -983,21 +1165,258 @@ function CostsTab() {
   )
 }
 
+// ── Catalog tab ───────────────────────────────────────────────────────────────
+// Read-only inspector for Supabase tables.  Lets the admin verify what's
+// actually stored in books / chunks / covers / pipeline_jobs / etc.
+
+const CATALOG_PAGE_SIZE = 50
+
+function formatCellValue(v: unknown): string {
+  if (v === null || v === undefined) return '—'
+  if (typeof v === 'boolean') return v ? 'true' : 'false'
+  if (typeof v === 'number') return String(v)
+  if (typeof v === 'string') return v
+  try { return JSON.stringify(v) } catch { return String(v) }
+}
+
+function CatalogTab() {
+  const [tables,   setTables]   = useState<CatalogTableMeta[]>([])
+  const [table,    setTable]    = useState<string>('books')
+  const [bookId,   setBookId]   = useState<string>('')
+  const [offset,   setOffset]   = useState<number>(0)
+  const [rows,     setRows]     = useState<Record<string, unknown>[]>([])
+  const [loading,  setLoading]  = useState<boolean>(false)
+  const [error,    setError]    = useState<string | null>(null)
+  const [expanded, setExpanded] = useState<string | null>(null)  // "row:col" key
+
+  // Load the list of allowed tables once on mount
+  useEffect(() => {
+    getCatalogTables()
+      .then(r => setTables(r.tables))
+      .catch(() => { /* keep dropdown disabled until reload */ })
+  }, [])
+
+  const tableMeta = useMemo(
+    () => tables.find(t => t.name === table),
+    [tables, table],
+  )
+
+  const supportsBookIdFilter = tableMeta?.supports_book_id ?? false
+
+  async function load(nextOffset: number = offset) {
+    setLoading(true)
+    setError(null)
+    try {
+      const data = await getCatalog(table, {
+        limit:  CATALOG_PAGE_SIZE,
+        offset: nextOffset,
+        book_id: supportsBookIdFilter && bookId.trim() ? bookId.trim() : undefined,
+      })
+      setRows(data.rows)
+      setOffset(data.offset)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+      setRows([])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Reload whenever the table changes or the user presses search
+  useEffect(() => {
+    setOffset(0)
+    void load(0)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [table])
+
+  // Detect columns from the first row (each table has a different shape)
+  const columns = rows.length > 0 ? Object.keys(rows[0]) : []
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-wrap items-center gap-3">
+        <label className="text-xs text-gray-500 uppercase tracking-wide">Table</label>
+        <select
+          value={table}
+          onChange={e => setTable(e.target.value)}
+          className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 max-w-[260px]"
+        >
+          {tables.map(t => (
+            <option key={t.name} value={t.name}>
+              {t.name}
+            </option>
+          ))}
+          {tables.length === 0 && <option value={table}>{table}</option>}
+        </select>
+
+        {supportsBookIdFilter && (
+          <>
+            <label className="text-xs text-gray-500 uppercase tracking-wide ml-2">
+              book_id
+            </label>
+            <input
+              type="text"
+              value={bookId}
+              onChange={e => setBookId(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') { setOffset(0); void load(0) } }}
+              placeholder="e.g. 12345"
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 w-[180px]"
+            />
+            <button
+              onClick={() => { setOffset(0); void load(0) }}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm px-3 py-1.5 rounded-lg"
+            >
+              Search
+            </button>
+            {bookId && (
+              <button
+                onClick={() => { setBookId(''); setOffset(0); void load(0) }}
+                className="text-xs text-gray-400 hover:text-gray-200"
+              >
+                Clear
+              </button>
+            )}
+          </>
+        )}
+
+        <div className="flex-1" />
+
+        <button
+          onClick={() => void load(offset)}
+          disabled={loading}
+          className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-200 text-sm px-3 py-1.5 rounded-lg disabled:opacity-50"
+        >
+          {loading ? 'Loading…' : '↻ Refresh'}
+        </button>
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="bg-red-950/30 border border-red-900/50 rounded-xl p-4 text-sm text-red-300">
+          <span className="font-medium">Error:</span> {error}
+        </div>
+      )}
+
+      {/* Empty / loading */}
+      {!loading && !error && rows.length === 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 text-sm text-gray-500 text-center">
+          No rows {bookId ? `for book_id=${bookId}` : 'returned'} from{' '}
+          <code className="text-gray-400 bg-gray-800 px-1 py-0.5 rounded">{table}</code>.
+        </div>
+      )}
+
+      {/* Table */}
+      {rows.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div className="overflow-x-auto max-h-[640px]">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="border-b border-gray-800 text-[10px] text-gray-500 uppercase tracking-wide sticky top-0 bg-gray-900">
+                  {columns.map(c => (
+                    <th
+                      key={c}
+                      className="text-left px-3 py-2 font-medium whitespace-nowrap"
+                    >
+                      {c}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800/50">
+                {rows.map((row, i) => (
+                  <tr key={i} className="hover:bg-gray-800/30 transition-colors align-top">
+                    {columns.map(c => {
+                      const cellKey = `${i}:${c}`
+                      const raw     = row[c]
+                      const text    = formatCellValue(raw)
+                      const isLong  = text.length > 80
+                      const isOpen  = expanded === cellKey
+                      const isNull  = raw === null || raw === undefined
+                      return (
+                        <td
+                          key={c}
+                          className={`px-3 py-2 align-top ${isNull ? 'text-gray-600 italic' : 'text-gray-300'}`}
+                        >
+                          {isLong && !isOpen ? (
+                            <button
+                              onClick={() => setExpanded(cellKey)}
+                              className="text-left text-gray-300 hover:text-indigo-300 font-mono"
+                              title="Click to expand"
+                            >
+                              {text.slice(0, 80)}…
+                            </button>
+                          ) : isLong && isOpen ? (
+                            <div>
+                              <pre className="text-[11px] text-gray-300 whitespace-pre-wrap max-w-[640px] font-mono">{text}</pre>
+                              <button
+                                onClick={() => setExpanded(null)}
+                                className="mt-1 text-[10px] text-gray-500 hover:text-gray-300"
+                              >
+                                ▴ Collapse
+                              </button>
+                            </div>
+                          ) : (
+                            <span className={isNull ? '' : 'font-mono'}>{text}</span>
+                          )}
+                        </td>
+                      )
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Pagination footer */}
+          <div className="flex items-center justify-between px-4 py-3 border-t border-gray-800 text-xs text-gray-500">
+            <span>
+              Showing rows <span className="text-gray-300">{offset + 1}–{offset + rows.length}</span>
+              {' '}from <code className="text-gray-400 bg-gray-800 px-1 py-0.5 rounded">{table}</code>
+              {bookId && supportsBookIdFilter && (
+                <> · filtered <code className="text-gray-400 bg-gray-800 px-1 py-0.5 rounded">book_id={bookId}</code></>
+              )}
+            </span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => void load(Math.max(0, offset - CATALOG_PAGE_SIZE))}
+                disabled={offset === 0 || loading}
+                className="px-3 py-1 rounded border border-gray-700 text-gray-300 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                ← Prev
+              </button>
+              <button
+                onClick={() => void load(offset + CATALOG_PAGE_SIZE)}
+                disabled={rows.length < CATALOG_PAGE_SIZE || loading}
+                className="px-3 py-1 rounded border border-gray-700 text-gray-300 hover:bg-gray-800 disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                Next →
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'providers' | 'jobs' | 'costs'
+type Tab = 'providers' | 'jobs' | 'costs' | 'catalog'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'providers', label: 'Providers' },
   { id: 'jobs',      label: 'Jobs'      },
   { id: 'costs',     label: 'Costs'     },
+  { id: 'catalog',   label: 'Catalog'   },
 ]
 
 export default function AdminPage() {
   const [tab, setTab] = useState<Tab>('providers')
 
   return (
-    <div className="p-8 max-w-5xl mx-auto">
+    <div className="p-8 max-w-6xl mx-auto">
       <h1 className="text-2xl font-semibold text-gray-100 mb-1">Admin Panel</h1>
       <p className="text-sm text-gray-500 mb-6">
         Configure AI providers and monitor pipeline jobs. Changes take effect on the next job — no restart needed.
@@ -1023,6 +1442,7 @@ export default function AdminPage() {
       {tab === 'providers' && <ProvidersTab />}
       {tab === 'jobs'      && <JobsTab />}
       {tab === 'costs'     && <CostsTab />}
+      {tab === 'catalog'   && <CatalogTab />}
     </div>
   )
 }

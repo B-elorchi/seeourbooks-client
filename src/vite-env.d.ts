@@ -10,6 +10,11 @@ interface ImportMetaEnv {
    *                 VITE_API_URL=https://seeourbooks-api.elorchi.com
    */
   readonly VITE_API_URL?: string
+
+  /** Supabase project URL — e.g. https://abc.supabase.co */
+  readonly VITE_SUPABASE_URL?: string
+  /** Supabase anon (public) key — safe to ship in the bundle */
+  readonly VITE_SUPABASE_ANON_KEY?: string
 }
 
 interface ImportMeta {

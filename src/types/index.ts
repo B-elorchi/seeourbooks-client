@@ -72,9 +72,21 @@ export interface PipelineResult {
   quick_summary:  string
   summaries:      Record<string, SummaryAsset>    // e.g. "10min_en"
   audio:          Record<string, AudioAsset>       // e.g. "full_en"
-  mindmap?:       { url: string }
+  mindmap?:       { url: string; data?: unknown }
+  epub?:          Record<string, { url: string }> | null  // e.g. {"enriched_en": {"url": "..."}}
+  video?:         Record<string, VideoAsset> | null       // e.g. {"summary_en": {url, duration_seconds, ...}}
   chapters:       ChapterResult[]
   errors:         Record<string, string>
+}
+
+export interface VideoAsset {
+  url:              string
+  duration_seconds?: number | null
+  size_mb?:         number | null
+  width?:           number | null
+  height?:          number | null
+  provider?:        string | null
+  silent?:          boolean | null   // true → slideshow without TTS narration
 }
 
 // ── Pipeline job (Supabase row) ───────────────────────────────────────────────
@@ -147,4 +159,24 @@ export interface OpenRouterModelsResponse {
   modality: OpenRouterModality
   count:    number
   models:   OpenRouterModel[]
+}
+
+// ── Catalog inspector (admin Catalog tab) ────────────────────────────────────
+
+export interface CatalogTableMeta {
+  name:              string
+  default_order:     string
+  supports_book_id:  boolean
+}
+
+export interface CatalogTablesResponse {
+  tables: CatalogTableMeta[]
+}
+
+export interface CatalogResponse {
+  table:  string
+  limit:  number
+  offset: number
+  count:  number
+  rows:   Record<string, unknown>[]
 }

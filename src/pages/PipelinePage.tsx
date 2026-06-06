@@ -27,23 +27,55 @@ export default function PipelinePage() {
   const [retrying,  setRetrying]  = useState(false)
   const [retryMsg,  setRetryMsg]  = useState<string | null>(null)
 
+  // ── Poll the list of jobs every 3s ───────────────────────────────────────
+  // Stable callback — `selected` is NOT in deps, so the interval doesn't
+  // tear down + restart on every click and we avoid the race where a stale
+  // closure value of `selected` overwrites the user's most recent click.
   const fetchJobs = useCallback(async () => {
     try {
       const data = await listJobs()
       setJobs(data)
-      if (selected && ['queued', 'running'].includes(selected.status)) {
-        const updated = await getJobStatus(selected.id)
-        setSelected(updated)
-      }
     } catch { /* silent */ }
     finally { setLoading(false) }
-  }, [selected])
+  }, [])
 
   useEffect(() => {
     fetchJobs()
     const id = setInterval(fetchJobs, 3000)
     return () => clearInterval(id)
   }, [fetchJobs])
+
+  // ── Poll the selected job's status separately ─────────────────────────────
+  // Only runs while the selected job is queued/running.  When the user clicks
+  // a different job, the previous interval is torn down and any in-flight
+  // request is ignored via the functional setSelected guard below — so a
+  // late response for the old job can never overwrite the user's new pick.
+  const selectedId     = selected?.id
+  const selectedStatus = selected?.status
+  useEffect(() => {
+    if (!selectedId) return
+    if (selectedStatus && !['queued', 'running'].includes(selectedStatus)) return
+
+    let cancelled = false
+    const pollSelected = async () => {
+      try {
+        const updated = await getJobStatus(selectedId)
+        if (cancelled) return
+        setSelected(latest =>
+          // Only apply the update if the user hasn't switched to a different
+          // job in the meantime.  This is the actual switch-back guard.
+          latest && latest.id === updated.id ? updated : latest
+        )
+      } catch { /* silent */ }
+    }
+
+    pollSelected()
+    const id = setInterval(pollSelected, 3000)
+    return () => {
+      cancelled = true
+      clearInterval(id)
+    }
+  }, [selectedId, selectedStatus])
 
   async function handleRetry(jobId: string) {
     setRetrying(true)
@@ -274,6 +306,116 @@ export default function PipelinePage() {
                     <p className="text-xs text-gray-600">Not generated</p>
                   )}
                 </div>
+
+                {/* Enriched EPUB — original book with the AI summary injected as the first chapter */}
+                {(() => {
+                  const epubEntries = r?.epub ? Object.entries(r.epub) : []
+                  return (
+                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
+                        Enriched EPUB
+                        {epubEntries.length > 0 && (
+                          <span className="normal-case text-gray-600 ml-1">({epubEntries[0][0]})</span>
+                        )}
+                      </p>
+                      {epubEntries.length > 0 && epubEntries[0][1]?.url ? (
+                        <>
+                          <div className="flex items-center gap-2 text-3xl mb-2" aria-hidden>📖</div>
+                          <p className="text-xs text-gray-400 mb-2 leading-relaxed">
+                            The original book with your AI summary added as the first chapter
+                            {r?.metadata?.cover_url ? ' and the new cover applied' : ''}.
+                          </p>
+                          <a href={epubEntries[0][1].url} target="_blank" rel="noreferrer"
+                             className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:underline">
+                            Download .epub ↗
+                          </a>
+                        </>
+                      ) : (
+                        <p className="text-xs text-gray-600">Not generated</p>
+                      )}
+                    </div>
+                  )
+                })()}
+
+                {/* Summary Video — slideshow with TTS narration, subtitles, mindmap reveal */}
+                {(() => {
+                  const videoEntries = r?.video ? Object.entries(r.video) : []
+                  return (
+                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:col-span-2 lg:col-span-3">
+                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-2">
+                        <span>Summary Video</span>
+                        {videoEntries.length > 0 && (
+                          <span className="normal-case text-gray-600">
+                            ({videoEntries[0][0]})
+                            {videoEntries[0][1]?.provider && ` · ${videoEntries[0][1].provider}`}
+                          </span>
+                        )}
+                        {videoEntries[0]?.[1]?.silent && (
+                          <span className="normal-case text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/40 text-amber-300 border border-amber-800 font-mono">
+                            🔇 silent preview
+                          </span>
+                        )}
+                      </p>
+                      {videoEntries.length > 0 && videoEntries[0][1]?.url ? (
+                        <div className="flex flex-col sm:flex-row gap-4 items-start">
+                          <video
+                            controls
+                            src={videoEntries[0][1].url}
+                            className="rounded-lg border border-gray-700 max-h-[420px] w-auto bg-black"
+                            style={{ accentColor: '#6366f1' }}
+                          />
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs text-gray-500 mb-2">
+                              Slideshow with cover, chapter cards, mindmap reveal, and
+                              burned-in subtitles aligned to the TTS narration.
+                            </p>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              {videoEntries[0][1].duration_seconds != null && (
+                                <div>
+                                  <span className="text-gray-500">Duration:</span>{' '}
+                                  <span className="text-gray-200 font-mono">
+                                    {Math.floor(videoEntries[0][1].duration_seconds! / 60)}m{' '}
+                                    {videoEntries[0][1].duration_seconds! % 60}s
+                                  </span>
+                                </div>
+                              )}
+                              {videoEntries[0][1].size_mb != null && (
+                                <div>
+                                  <span className="text-gray-500">Size:</span>{' '}
+                                  <span className="text-gray-200 font-mono">
+                                    {videoEntries[0][1].size_mb} MB
+                                  </span>
+                                </div>
+                              )}
+                              {videoEntries[0][1].width != null && videoEntries[0][1].height != null && (
+                                <div>
+                                  <span className="text-gray-500">Resolution:</span>{' '}
+                                  <span className="text-gray-200 font-mono">
+                                    {videoEntries[0][1].width}×{videoEntries[0][1].height}
+                                  </span>
+                                </div>
+                              )}
+                              {videoEntries[0][1].provider && (
+                                <div>
+                                  <span className="text-gray-500">Provider:</span>{' '}
+                                  <span className="text-gray-200 font-mono">
+                                    {videoEntries[0][1].provider}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                            <a href={videoEntries[0][1].url} target="_blank" rel="noreferrer"
+                               className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:underline mt-3">
+                              Download .mp4 ↗
+                            </a>
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-600">Not generated</p>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )}
 
