@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
-  getConfig, setConfig, getMetrics, getAdminJobs, retryJob, getCosts,
+  getConfig, setConfig, getMetrics, getAdminJobs, retryJob, rerunSteps, getCosts,
   getOpenRouterModels,
   getCatalogTables, getCatalog,
 } from '../api/admin'
@@ -843,10 +843,98 @@ const STEP_COLORS: Record<string, string> = {
   running: 'bg-blue-900/40 text-blue-400',
 }
 
+// All valid pipeline steps with friendly labels
+const ALL_STEPS: { id: string; label: string }[] = [
+  { id: 'summarize',      label: 'Summarize'       },
+  { id: 'audio_full',     label: 'Audio (full)'    },
+  { id: 'audio_chapters', label: 'Audio (chapters)'},
+  { id: 'cover',          label: 'Cover image'     },
+  { id: 'alt_text',       label: 'Alt text'        },
+  { id: 'mindmap',        label: 'Mind map'        },
+  { id: 'mindmap_chapters', label: 'Mind map (chapters)' },
+  { id: 'inject_epub',    label: 'Inject EPUB'     },
+  { id: 'video',          label: 'Video'           },
+]
+
+// Inline step-picker panel for a single job row
+function StepPicker({
+  jobId,
+  onClose,
+  onDone,
+}: {
+  jobId:   string
+  onClose: () => void
+  onDone:  () => void
+}) {
+  const [selected,  setSelected]  = useState<Set<string>>(new Set())
+  const [running,   setRunning]   = useState(false)
+  const [error,     setError]     = useState<string | null>(null)
+
+  function toggle(id: string) {
+    setSelected(prev => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  async function handleRun() {
+    if (!selected.size) return
+    setRunning(true)
+    setError(null)
+    try {
+      await rerunSteps(jobId, [...selected])
+      onDone()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed')
+      setRunning(false)
+    }
+  }
+
+  return (
+    <div className="mt-2 bg-gray-950 border border-gray-700 rounded-xl p-3 space-y-2 w-64">
+      <p className="text-[11px] text-gray-500 uppercase tracking-wide font-medium">Select steps to rerun</p>
+      <div className="grid grid-cols-2 gap-1">
+        {ALL_STEPS.map(s => (
+          <label key={s.id} className="flex items-center gap-1.5 cursor-pointer group">
+            <input
+              type="checkbox"
+              checked={selected.has(s.id)}
+              onChange={() => toggle(s.id)}
+              className="accent-indigo-500 w-3.5 h-3.5"
+            />
+            <span className="text-xs text-gray-300 group-hover:text-white">{s.label}</span>
+          </label>
+        ))}
+      </div>
+
+      {error && <p className="text-xs text-red-400">{error}</p>}
+
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={handleRun}
+          disabled={!selected.size || running}
+          className="flex-1 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+        >
+          {running ? 'Queuing…' : `Run ${selected.size || ''} step${selected.size !== 1 ? 's' : ''}`}
+        </button>
+        <button
+          onClick={onClose}
+          disabled={running}
+          className="px-3 py-1 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function JobsTab() {
-  const [jobs,     setJobs]     = useState<PipelineJob[]>([])
-  const [loading,  setLoading]  = useState(true)
-  const [retrying, setRetrying] = useState<string | null>(null)  // job_id being retried
+  const [jobs,       setJobs]       = useState<PipelineJob[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [retrying,   setRetrying]   = useState<string | null>(null)
+  const [pickerOpen, setPickerOpen] = useState<string | null>(null)  // job_id with open picker
 
   async function loadJobs() {
     try {
@@ -886,7 +974,6 @@ function JobsTab() {
         </thead>
         <tbody className="divide-y divide-gray-800">
           {jobs.map(job => {
-            // Normalize result: handle legacy JSON string rows
             const jr = typeof job.result === 'string'
               ? (() => { try { return JSON.parse(job.result as string) } catch { return null } })()
               : job.result
@@ -895,9 +982,10 @@ function JobsTab() {
             const canRetry   = job.status === 'failed' || job.status === 'partial'
             const retryCount = job.retry_count ?? 0
             const maxRetries = job.max_retries ?? 3
+            const isPickerOpen = pickerOpen === job.id
 
             return (
-              <tr key={job.id} className="hover:bg-gray-800/40 transition-colors">
+              <tr key={job.id} className="hover:bg-gray-800/40 transition-colors align-top">
                 <td className="px-5 py-3">
                   <p className="text-gray-200 font-medium truncate max-w-[180px]">
                     {jr?.metadata?.title ?? job.book_id}
@@ -936,23 +1024,56 @@ function JobsTab() {
                   {timeAgo(job.created_at)}
                 </td>
                 <td className="px-5 py-3">
-                  {canRetry && (
-                    <button
-                      onClick={() => handleRetry(job.id)}
-                      disabled={isRetrying}
-                      title="Retry this job (resets retry counter)"
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed text-gray-400 hover:text-white text-xs font-medium transition-colors border border-gray-700 hover:border-indigo-500"
-                    >
-                      {isRetrying ? (
-                        <span className="inline-block w-3 h-3 border border-current/40 border-t-current rounded-full animate-spin" />
-                      ) : (
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m0 0a8 8 0 0114.83 2.999M4.582 9H9m11 11v-5h-.581m0 0a8 8 0 01-14.83-3M14.418 15H20" />
-                        </svg>
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="flex items-center gap-1.5">
+                      {/* Retry failed steps button — only for failed/partial */}
+                      {canRetry && (
+                        <button
+                          onClick={() => handleRetry(job.id)}
+                          disabled={isRetrying || isPickerOpen}
+                          title="Retry failed steps only"
+                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-400 hover:text-white text-xs font-medium transition-colors border border-gray-700 hover:border-amber-600"
+                        >
+                          {isRetrying
+                            ? <span className="inline-block w-3 h-3 border border-current/40 border-t-current rounded-full animate-spin" />
+                            : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m0 0a8 8 0 0114.83 2.999M4.582 9H9m11 11v-5h-.581m0 0a8 8 0 01-14.83-3M14.418 15H20" />
+                              </svg>
+                          }
+                          {isRetrying ? 'Retrying…' : 'Retry'}
+                        </button>
                       )}
-                      {isRetrying ? 'Retrying…' : 'Retry'}
-                    </button>
-                  )}
+
+                      {/* Rerun specific steps — available on any job */}
+                      <button
+                        onClick={() => setPickerOpen(isPickerOpen ? null : job.id)}
+                        disabled={isRetrying}
+                        title="Pick specific steps to rerun"
+                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
+                          isPickerOpen
+                            ? 'bg-indigo-700 text-white border-indigo-500'
+                            : 'bg-gray-800 hover:bg-indigo-600 text-gray-400 hover:text-white border-gray-700 hover:border-indigo-500'
+                        } disabled:opacity-40 disabled:cursor-not-allowed`}
+                      >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                        </svg>
+                        Rerun steps
+                      </button>
+                    </div>
+
+                    {/* Inline step picker */}
+                    {isPickerOpen && (
+                      <StepPicker
+                        jobId={job.id}
+                        onClose={() => setPickerOpen(null)}
+                        onDone={async () => {
+                          setPickerOpen(null)
+                          await loadJobs()
+                        }}
+                      />
+                    )}
+                  </div>
                 </td>
               </tr>
             )

@@ -44,6 +44,16 @@ export async function retryJob(jobId: string): Promise<{ job_id: string; status:
   return res.json()
 }
 
+export async function rerunSteps(jobId: string, steps: string[]): Promise<{ job_id: string; status: string }> {
+  const res = await apiFetch(`/api/admin/jobs/${jobId}/rerun`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ steps }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 // ── Costs ─────────────────────────────────────────────────────────────────────
 
 export async function getCosts(days = 30): Promise<AdminCosts> {
