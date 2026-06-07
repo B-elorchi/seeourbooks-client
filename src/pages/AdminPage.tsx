@@ -1401,12 +1401,157 @@ function CatalogTab() {
 }
 
 
+// ── Prompts tab ───────────────────────────────────────────────────────────────
+
+const PROMPT_ROWS: Array<{
+  key:         string
+  label:       string
+  description: string
+  variables:   string[]
+}> = [
+  {
+    key:         'PROMPT_COVER',
+    label:       'Cover Image Prompt',
+    description: 'Sent to the image generation model (DALL-E, FLUX, Gemini…). Controls the visual style and text layout of the generated book cover.',
+    variables:   ['{title}', '{author}', '{details}', '{summary}', '{genre_hint}'],
+  },
+  {
+    key:         'PROMPT_MINDMAP_MERMAID',
+    label:       'Mind Map Prompt — Mermaid',
+    description: 'Used when MINDMAP_FORMAT = mermaid. The model must output valid Mermaid graph TD syntax.',
+    variables:   ['{title}', '{summary}', '{lang_note}'],
+  },
+  {
+    key:         'PROMPT_MINDMAP_JSON',
+    label:       'Mind Map Prompt — JSON',
+    description: 'Used when MINDMAP_FORMAT = json. The model must output the exact JSON structure shown in the prompt.',
+    variables:   ['{title}', '{summary}', '{lang_note}'],
+  },
+]
+
+function PromptsTab() {
+  const [config,  setConfigState] = useState<Record<string, string>>({})
+  const [drafts,  setDrafts]      = useState<Record<string, string>>({})
+  const [saving,  setSaving]      = useState<string | null>(null)
+  const [saved,   setSaved]       = useState<string | null>(null)
+  const [loading, setLoading]     = useState(true)
+
+  useEffect(() => {
+    getConfig()
+      .then(cfg => {
+        setConfigState(cfg)
+        const initial: Record<string, string> = {}
+        for (const row of PROMPT_ROWS) initial[row.key] = cfg[row.key] ?? ''
+        setDrafts(initial)
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  async function handleSave(key: string) {
+    setSaving(key)
+    try {
+      await setConfig(key, drafts[key] ?? '')
+      setConfigState(prev => ({ ...prev, [key]: drafts[key] ?? '' }))
+      setSaved(key)
+      setTimeout(() => setSaved(null), 2000)
+    } catch { /* silently ignore */ }
+    finally { setSaving(null) }
+  }
+
+  function handleReset(key: string) {
+    // Pull the current saved value back into the draft
+    setDrafts(prev => ({ ...prev, [key]: config[key] ?? '' }))
+  }
+
+  if (loading) return <div className="p-6 text-sm text-gray-500">Loading prompts…</div>
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">
+        Edit the AI prompts used for image generation and mind maps. Use the placeholder variables
+        listed under each prompt — the pipeline replaces them at runtime.
+        Changes take effect on the next pipeline job.
+      </p>
+
+      {PROMPT_ROWS.map(row => {
+        const draft    = drafts[row.key] ?? ''
+        const original = config[row.key] ?? ''
+        const isDirty  = draft !== original
+        const isSaving = saving === row.key
+        const isSaved  = saved  === row.key
+
+        return (
+          <div key={row.key} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            {/* Header */}
+            <div className="px-5 py-3 border-b border-gray-800 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-200">{row.label}</h2>
+                <p className="text-xs text-gray-500 mt-0.5">{row.description}</p>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {row.variables.map(v => (
+                    <code key={v} className="text-[11px] px-1.5 py-0.5 rounded bg-gray-800 text-indigo-300 border border-gray-700">
+                      {v}
+                    </code>
+                  ))}
+                </div>
+              </div>
+              <code className="text-xs text-gray-600 shrink-0 mt-0.5">{row.key}</code>
+            </div>
+
+            {/* Textarea */}
+            <div className="p-4">
+              <textarea
+                value={draft}
+                onChange={e => setDrafts(prev => ({ ...prev, [row.key]: e.target.value }))}
+                rows={12}
+                spellCheck={false}
+                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-100 font-mono focus:outline-none focus:border-indigo-500 resize-y leading-relaxed placeholder:text-gray-600"
+              />
+            </div>
+
+            {/* Footer actions */}
+            <div className="px-4 pb-4 flex items-center gap-3">
+              <button
+                onClick={() => handleSave(row.key)}
+                disabled={!isDirty || isSaving}
+                className="px-4 py-1.5 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                {isSaving ? 'Saving…' : 'Save'}
+              </button>
+
+              {isDirty && !isSaving && (
+                <button
+                  onClick={() => handleReset(row.key)}
+                  className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-gray-100 hover:bg-gray-800 transition-colors"
+                >
+                  Discard
+                </button>
+              )}
+
+              {isSaved && (
+                <span className="text-xs text-green-400">Saved ✓</span>
+              )}
+
+              {isDirty && !isSaving && (
+                <span className="text-xs text-amber-400 ml-auto">Unsaved changes</span>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'providers' | 'jobs' | 'costs' | 'catalog'
+type Tab = 'providers' | 'prompts' | 'jobs' | 'costs' | 'catalog'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'providers', label: 'Providers' },
+  { id: 'prompts',   label: 'Prompts'   },
   { id: 'jobs',      label: 'Jobs'      },
   { id: 'costs',     label: 'Costs'     },
   { id: 'catalog',   label: 'Catalog'   },
@@ -1440,6 +1585,7 @@ export default function AdminPage() {
       </div>
 
       {tab === 'providers' && <ProvidersTab />}
+      {tab === 'prompts'   && <PromptsTab />}
       {tab === 'jobs'      && <JobsTab />}
       {tab === 'costs'     && <CostsTab />}
       {tab === 'catalog'   && <CatalogTab />}
