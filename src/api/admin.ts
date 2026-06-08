@@ -72,6 +72,108 @@ export async function getOpenRouterModels(
   return res.json()
 }
 
+// ── Books ─────────────────────────────────────────────────────────────────────
+
+export interface BookUpsertPayload {
+  book_id:      string
+  title?:       string
+  author?:      string
+  language?:    string
+  year?:        number
+  pages?:       number
+  grade_level?: string
+  genres?:      string[]
+  status?:      string
+}
+
+export async function upsertBook(payload: BookUpsertPayload): Promise<{
+  ok: boolean; book_id: string; title: string; author: string; action: string; next: string
+}> {
+  const res = await apiFetch('/api/admin/books', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getBook(bookId: string): Promise<Record<string, unknown>> {
+  const res = await apiFetch(`/api/admin/books/${encodeURIComponent(bookId)}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function startIngest(bookId: string): Promise<{
+  ok: boolean; book_id: string; status: string; status_url: string
+}> {
+  const res = await apiFetch(`/api/admin/books/${encodeURIComponent(bookId)}/ingest`, {
+    method: 'POST',
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getIngestStatus(bookId: string): Promise<{
+  status: string; book_id: string; title?: string; source?: string;
+  chunks_saved?: number; total_chars?: number; txt_url?: string;
+  error?: string; step?: string;
+}> {
+  const res = await apiFetch(`/api/admin/books/${encodeURIComponent(bookId)}/ingest/status`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+/** @deprecated use startIngest + getIngestStatus */
+export async function ingestBook(bookId: string) { return startIngest(bookId) }
+
+export async function runPipeline(payload: {
+  book_id: string; language?: string; steps?: string[];
+  options?: { length?: string; style?: string }; source?: string
+}): Promise<{ job_id: string; status: string; status_url: string }> {
+  const res = await apiFetch('/api/pipeline/run', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+/**
+ * v2 smart pipeline — one call does everything:
+ * ensures book row exists, ingests EPUB/TXT if no chunks, then runs the pipeline.
+ */
+export async function runPipelineV2(payload: {
+  book_id: string
+  language?: string
+  source?: string
+  steps?: string[]
+  options?: { length?: string; style?: string }
+}): Promise<{
+  ok: boolean
+  job_id: string
+  status: string
+  status_url: string
+  book_id: string
+  title: string
+  author: string
+}> {
+  const res = await apiFetch('/api/v2/pipeline/run', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function cancelJob(jobId: string): Promise<{ ok: boolean; message: string }> {
+  const res = await apiFetch(`/api/pipeline/jobs/${jobId}/cancel`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 // ── Catalog inspector ────────────────────────────────────────────────────────
 
 export async function getCatalogTables(): Promise<CatalogTablesResponse> {

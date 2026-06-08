@@ -4,6 +4,7 @@ import {
   getConfig, setConfig, getMetrics, getAdminJobs, retryJob, rerunSteps, getCosts,
   getOpenRouterModels,
   getCatalogTables, getCatalog,
+  upsertBook, startIngest, getIngestStatus, runPipelineV2, cancelJob,
 } from '../api/admin'
 import type { AdminMetrics, PipelineJob, AdminCosts, CatalogTableMeta } from '../types'
 import StatusBadge from '../components/StatusBadge'
@@ -61,8 +62,9 @@ const PROVIDER_GROUPS: Array<{
     title: 'Summarization',
     rows: [
       {
-        key: 'MODEL_HAIKU', label: 'Chapter model (Pass 1)',
+        key: 'MODEL_CHUNK', label: 'Chapter model (Pass 1) — per-chunk summary',
         options: [
+          g('🔀 OpenRouter → OpenAI',    OR_GPT),
           g('🟣 Anthropic — Native API', CLAUDE_MODELS),
           g('🔀 OpenRouter → Anthropic',  OR_CLAUDE),
         ],
@@ -98,6 +100,12 @@ const PROVIDER_GROUPS: Array<{
           g('🟣 Anthropic — Native API', CLAUDE_MODELS),
           g('🔀 OpenRouter → Anthropic', OR_CLAUDE),
         ],
+      },
+      {
+        key: 'MINDMAP_JSON_MAX_TOKENS', label: 'JSON max tokens (0 = unlimited)',
+        options: [],
+        type: 'text',
+        placeholder: '0 = unlimited (recommended)',
       },
     ],
   },
@@ -704,7 +712,7 @@ function ProvidersTab() {
     }
 
     const CHAT_ROW_KEYS = new Set([
-      'MODEL_HAIKU', 'MODEL_SONNET', 'MODEL_OPUS', 'MODEL_MINDMAP',
+      'MODEL_CHUNK', 'MODEL_SONNET', 'MODEL_OPUS', 'MODEL_MINDMAP',
       // DOC_AI_MODEL: documents pipeline summary + structured JSON.
       // Inherits the same searchable live-OpenRouter combo treatment.
       'DOC_AI_MODEL',
@@ -856,85 +864,28 @@ const ALL_STEPS: { id: string; label: string }[] = [
   { id: 'video',          label: 'Video'           },
 ]
 
-// Inline step-picker panel for a single job row
-function StepPicker({
-  jobId,
-  onClose,
-  onDone,
-}: {
-  jobId:   string
-  onClose: () => void
-  onDone:  () => void
-}) {
-  const [selected,  setSelected]  = useState<Set<string>>(new Set())
-  const [running,   setRunning]   = useState(false)
-  const [error,     setError]     = useState<string | null>(null)
-
-  function toggle(id: string) {
-    setSelected(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
-  }
-
-  async function handleRun() {
-    if (!selected.size) return
-    setRunning(true)
-    setError(null)
-    try {
-      await rerunSteps(jobId, [...selected])
-      onDone()
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed')
-      setRunning(false)
-    }
-  }
-
-  return (
-    <div className="mt-2 bg-gray-950 border border-gray-700 rounded-xl p-3 space-y-2 w-64">
-      <p className="text-[11px] text-gray-500 uppercase tracking-wide font-medium">Select steps to rerun</p>
-      <div className="grid grid-cols-2 gap-1">
-        {ALL_STEPS.map(s => (
-          <label key={s.id} className="flex items-center gap-1.5 cursor-pointer group">
-            <input
-              type="checkbox"
-              checked={selected.has(s.id)}
-              onChange={() => toggle(s.id)}
-              className="accent-indigo-500 w-3.5 h-3.5"
-            />
-            <span className="text-xs text-gray-300 group-hover:text-white">{s.label}</span>
-          </label>
-        ))}
-      </div>
-
-      {error && <p className="text-xs text-red-400">{error}</p>}
-
-      <div className="flex gap-2 pt-1">
-        <button
-          onClick={handleRun}
-          disabled={!selected.size || running}
-          className="flex-1 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
-        >
-          {running ? 'Queuing…' : `Run ${selected.size || ''} step${selected.size !== 1 ? 's' : ''}`}
-        </button>
-        <button
-          onClick={onClose}
-          disabled={running}
-          className="px-3 py-1 rounded-lg text-xs text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
-        >
-          Cancel
-        </button>
-      </div>
-    </div>
-  )
+// Step label abbreviations for compact display
+const STEP_SHORT: Record<string, string> = {
+  summarize:        'sum',
+  audio_full:       'aud',
+  audio_chapters:   'aud-ch',
+  cover:            'cover',
+  alt_text:         'alt',
+  mindmap:          'mm',
+  mindmap_chapters: 'mm-ch',
+  inject_epub:      'epub',
+  video:            'video',
 }
 
 function JobsTab() {
-  const [jobs,       setJobs]       = useState<PipelineJob[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [retrying,   setRetrying]   = useState<string | null>(null)
-  const [pickerOpen, setPickerOpen] = useState<string | null>(null)  // job_id with open picker
+  const [jobs,        setJobs]        = useState<PipelineJob[]>([])
+  const [loading,     setLoading]     = useState(true)
+  const [retrying,    setRetrying]    = useState<string | null>(null)
+  const [cancelling,  setCancelling]  = useState<string | null>(null)
+  // rerunning: "jobId:step" or "jobId:__all__" while a rerun call is in-flight
+  const [rerunning,   setRerunning]   = useState<string | null>(null)
+  // Per-job step checkbox selections: jobId → Set of checked step names
+  const [jobStepSel,  setJobStepSel]  = useState<Record<string, Set<string>>>({})
 
   async function loadJobs() {
     try {
@@ -953,6 +904,35 @@ function JobsTab() {
       await loadJobs()
     } catch { /* silent */ }
     finally { setRetrying(null) }
+  }
+
+  async function handleCancel(jobId: string) {
+    setCancelling(jobId)
+    try {
+      await cancelJob(jobId)
+      await loadJobs()
+    } catch { /* silent */ }
+    finally { setCancelling(null) }
+  }
+
+  async function handleRerun(jobId: string, steps: string[]) {
+    const key = steps.length === ALL_STEPS.length ? `${jobId}:__all__` : `${jobId}:sel`
+    setRerunning(key)
+    try {
+      await rerunSteps(jobId, steps)
+      // Clear selection for this job after queuing
+      setJobStepSel(prev => { const n = {...prev}; delete n[jobId]; return n })
+      await loadJobs()
+    } catch { /* silent */ }
+    finally { setRerunning(null) }
+  }
+
+  function toggleJobStep(jobId: string, step: string) {
+    setJobStepSel(prev => {
+      const cur = new Set(prev[jobId] ?? [])
+      cur.has(step) ? cur.delete(step) : cur.add(step)
+      return { ...prev, [jobId]: cur }
+    })
   }
 
   if (loading) return <div className="p-6 text-sm text-gray-500">Loading jobs…</div>
@@ -977,12 +957,14 @@ function JobsTab() {
             const jr = typeof job.result === 'string'
               ? (() => { try { return JSON.parse(job.result as string) } catch { return null } })()
               : job.result
-            const steps      = jr?.steps ?? {}
-            const isRetrying = retrying === job.id
-            const canRetry   = job.status === 'failed' || job.status === 'partial'
-            const retryCount = job.retry_count ?? 0
-            const maxRetries = job.max_retries ?? 3
-            const isPickerOpen = pickerOpen === job.id
+            const steps       = jr?.steps ?? {}
+            const currentStep = jr?.current_step as string | undefined
+            const isRetrying  = retrying === job.id
+            const isCancelling = cancelling === job.id
+            const canRetry    = job.status === 'failed' || job.status === 'partial'
+            const canCancel   = job.status === 'running' || job.status === 'queued'
+            const retryCount  = job.retry_count ?? 0
+            const maxRetries  = job.max_retries ?? 3
 
             return (
               <tr key={job.id} className="hover:bg-gray-800/40 transition-colors align-top">
@@ -995,18 +977,80 @@ function JobsTab() {
                 <td className="px-5 py-3">
                   <StatusBadge status={job.status} />
                 </td>
-                <td className="px-5 py-3">
-                  <div className="flex flex-wrap gap-1">
-                    {Object.entries(steps).length > 0
-                      ? Object.entries(steps).map(([step, s]) => (
-                          <span key={step}
-                            className={`text-xs px-1.5 py-0.5 rounded font-mono ${STEP_COLORS[String(s)] ?? 'bg-gray-800 text-gray-400'}`}>
-                            {step}
-                          </span>
-                        ))
-                      : <span className="text-xs text-gray-600">—</span>
-                    }
-                  </div>
+                {/* Steps — checkbox chips to select, then regen */}
+                <td className="px-5 py-3 max-w-xs">
+                  {Object.entries(steps).length > 0 ? (() => {
+                    const busy = canCancel || !!rerunning?.startsWith(job.id)
+                    const sel  = jobStepSel[job.id] ?? new Set<string>()
+                    const allKeys = Object.keys(steps)
+                    const allChecked = allKeys.length > 0 && allKeys.every(k => sel.has(k))
+                    return (
+                      <>
+                        <div className="flex flex-wrap gap-1 mb-1">
+                          {Object.entries(steps).map(([step, s]) => {
+                            const isChecked = sel.has(step)
+                            return (
+                              <label
+                                key={step}
+                                title={busy ? String(s) : `Check to select ${step}`}
+                                className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-mono text-xs select-none transition-all
+                                  ${STEP_COLORS[String(s)] ?? 'bg-gray-800 text-gray-400'}
+                                  ${busy ? 'cursor-default' : 'cursor-pointer hover:brightness-125'}
+                                  ${isChecked ? 'ring-1 ring-white/40' : ''}
+                                `}
+                              >
+                                {!busy && (
+                                  <input
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => toggleJobStep(job.id, step)}
+                                    className="accent-white w-2.5 h-2.5"
+                                    onClick={e => e.stopPropagation()}
+                                  />
+                                )}
+                                {STEP_SHORT[step] ?? step}
+                              </label>
+                            )
+                          })}
+                        </div>
+                        {/* Select-all + regen-selected row */}
+                        {!busy && (
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <label className="flex items-center gap-1 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={allChecked}
+                                onChange={() => setJobStepSel(prev => ({
+                                  ...prev,
+                                  [job.id]: allChecked ? new Set() : new Set(allKeys),
+                                }))}
+                                className="accent-indigo-500 w-2.5 h-2.5"
+                              />
+                              <span className="text-[10px] text-gray-500">All</span>
+                            </label>
+                            {sel.size > 0 && (
+                              <button
+                                onClick={() => handleRerun(job.id, [...sel])}
+                                disabled={!!rerunning?.startsWith(job.id)}
+                                className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-700 hover:bg-indigo-600 disabled:opacity-40 text-white text-[10px] font-medium transition-colors"
+                              >
+                                {rerunning === `${job.id}:sel`
+                                  ? <span className="inline-block w-2 h-2 border border-white/40 border-t-white rounded-full animate-spin" />
+                                  : null}
+                                Regen {sel.size}
+                              </button>
+                            )}
+                          </div>
+                        )}
+                        {currentStep && job.status === 'running' && (
+                          <p className="text-[10px] text-yellow-400 mt-1 flex items-center gap-1">
+                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse" />
+                            <span className="font-mono">{currentStep}</span>
+                          </p>
+                        )}
+                      </>
+                    )
+                  })() : <span className="text-xs text-gray-600">—</span>}
                 </td>
                 <td className="px-5 py-3 text-xs">
                   {retryCount > 0 ? (
@@ -1024,54 +1068,59 @@ function JobsTab() {
                   {timeAgo(job.created_at)}
                 </td>
                 <td className="px-5 py-3">
-                  <div className="flex flex-col items-end gap-1">
-                    <div className="flex items-center gap-1.5">
-                      {/* Retry failed steps button — only for failed/partial */}
-                      {canRetry && (
-                        <button
-                          onClick={() => handleRetry(job.id)}
-                          disabled={isRetrying || isPickerOpen}
-                          title="Retry failed steps only"
-                          className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-400 hover:text-white text-xs font-medium transition-colors border border-gray-700 hover:border-amber-600"
-                        >
-                          {isRetrying
-                            ? <span className="inline-block w-3 h-3 border border-current/40 border-t-current rounded-full animate-spin" />
-                            : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m0 0a8 8 0 0114.83 2.999M4.582 9H9m11 11v-5h-.581m0 0a8 8 0 01-14.83-3M14.418 15H20" />
-                              </svg>
-                          }
-                          {isRetrying ? 'Retrying…' : 'Retry'}
-                        </button>
-                      )}
-
-                      {/* Rerun specific steps — available on any job */}
+                  <div className="flex items-center gap-1.5 justify-end">
+                    {/* Cancel — running/queued only */}
+                    {canCancel && (
                       <button
-                        onClick={() => setPickerOpen(isPickerOpen ? null : job.id)}
-                        disabled={isRetrying}
-                        title="Pick specific steps to rerun"
-                        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium transition-colors border ${
-                          isPickerOpen
-                            ? 'bg-indigo-700 text-white border-indigo-500'
-                            : 'bg-gray-800 hover:bg-indigo-600 text-gray-400 hover:text-white border-gray-700 hover:border-indigo-500'
-                        } disabled:opacity-40 disabled:cursor-not-allowed`}
+                        onClick={() => handleCancel(job.id)}
+                        disabled={isCancelling}
+                        title="Stop at next step boundary"
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-400 hover:text-white text-xs font-medium transition-colors border border-gray-700 hover:border-red-600"
                       >
-                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
-                        </svg>
-                        Rerun steps
+                        {isCancelling
+                          ? <span className="inline-block w-3 h-3 border border-current/40 border-t-current rounded-full animate-spin" />
+                          : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        }
+                        {isCancelling ? 'Cancelling…' : 'Cancel'}
                       </button>
-                    </div>
+                    )}
 
-                    {/* Inline step picker */}
-                    {isPickerOpen && (
-                      <StepPicker
-                        jobId={job.id}
-                        onClose={() => setPickerOpen(null)}
-                        onDone={async () => {
-                          setPickerOpen(null)
-                          await loadJobs()
-                        }}
-                      />
+                    {/* Retry failed steps — failed/partial only */}
+                    {canRetry && (
+                      <button
+                        onClick={() => handleRetry(job.id)}
+                        disabled={isRetrying}
+                        title="Retry only the failed steps"
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-400 hover:text-white text-xs font-medium transition-colors border border-gray-700 hover:border-amber-600"
+                      >
+                        {isRetrying
+                          ? <span className="inline-block w-3 h-3 border border-current/40 border-t-current rounded-full animate-spin" />
+                          : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m0 0a8 8 0 0114.83 2.999M4.582 9H9m11 11v-5h-.581m0 0a8 8 0 01-14.83-3M14.418 15H20" />
+                            </svg>
+                        }
+                        {isRetrying ? 'Retrying…' : 'Retry'}
+                      </button>
+                    )}
+
+                    {/* Regen All — regenerate every step in parallel */}
+                    {!canCancel && (
+                      <button
+                        onClick={() => handleRerun(job.id, ALL_STEPS.map(s => s.id))}
+                        disabled={!!rerunning?.startsWith(job.id)}
+                        title="Regenerate all steps at once"
+                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-gray-800 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed text-gray-400 hover:text-white text-xs font-medium transition-colors border border-gray-700 hover:border-indigo-500"
+                      >
+                        {rerunning === `${job.id}:__all__`
+                          ? <span className="inline-block w-3 h-3 border border-current/40 border-t-current rounded-full animate-spin" />
+                          : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m0 0a8 8 0 0114.83 2.999M4.582 9H9m11 11v-5h-.581m0 0a8 8 0 01-14.83-3M14.418 15H20" />
+                            </svg>
+                        }
+                        Regen All
+                      </button>
                     )}
                   </div>
                 </td>
@@ -1522,6 +1571,435 @@ function CatalogTab() {
 }
 
 
+// ── Books tab ─────────────────────────────────────────────────────────────────
+
+const PIPELINE_STEPS_LIST = ALL_STEPS  // reuse the same list from JobsTab
+
+// ── localStorage helpers for BooksTab persistence ────────────────────────────
+const BOOKS_LS_KEY = 'admin_books_tab_v1'
+function loadBooksState() {
+  try { return JSON.parse(localStorage.getItem(BOOKS_LS_KEY) || '{}') } catch { return {} }
+}
+function saveBooksState(patch: Record<string, unknown>) {
+  try {
+    const current = loadBooksState()
+    localStorage.setItem(BOOKS_LS_KEY, JSON.stringify({ ...current, ...patch }))
+  } catch { /* ignore quota errors */ }
+}
+
+function BooksTab() {
+  const saved = loadBooksState()
+
+  // ── Add book form (persisted) ──────────────────────────────────────────────
+  const [bookId,   setBookIdRaw]   = useState<string>(saved.bookId   ?? '')
+  const [title,    setTitleRaw]    = useState<string>(saved.title    ?? '')
+  const [author,   setAuthorRaw]   = useState<string>(saved.author   ?? '')
+  const [language, setLanguageRaw] = useState<string>(saved.language ?? 'en')
+
+  function setBookId(v: string)   { setBookIdRaw(v);   saveBooksState({ bookId: v }) }
+  function setTitle(v: string)    { setTitleRaw(v);    saveBooksState({ title: v }) }
+  function setAuthor(v: string)   { setAuthorRaw(v);   saveBooksState({ author: v }) }
+  function setLanguage(v: string) { setLanguageRaw(v); saveBooksState({ language: v }) }
+
+  const [upserting,    setUpserting]    = useState(false)
+  const [upsertResult, setUpsertResultRaw] = useState<{
+    book_id: string; title: string; author: string
+  } | null>(saved.upsertResult ?? null)
+  const [upsertError,  setUpsertError]  = useState<string | null>(null)
+
+  function setUpsertResult(v: { book_id: string; title: string; author: string } | null) {
+    setUpsertResultRaw(v)
+    saveBooksState({ upsertResult: v })
+  }
+
+  // ── Ingest (background task + polling) ────────────────────────────────────
+  const [ingesting,    setIngesting]    = useState(false)
+  const [ingestResult, setIngestResultRaw] = useState<{
+    chunks_saved: number; total_chars: number; txt_url: string; source: string
+  } | null>(saved.ingestResult ?? null)
+  const [ingestError,  setIngestError]  = useState<string | null>(null)
+  const [ingestStep,   setIngestStep]   = useState<string>('')  // live progress message
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  function setIngestResult(v: typeof ingestResult) {
+    setIngestResultRaw(v)
+    saveBooksState({ ingestResult: v })
+  }
+
+  function stopPolling() {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+  }
+
+  // Restore polling if the page reloads mid-ingest
+  useEffect(() => {
+    const restoredId = (loadBooksState().bookId as string | undefined) ?? ''
+    if (!restoredId) return
+    // Check if server still has a running job for this book
+    void getIngestStatus(restoredId).then(s => {
+      if (s.status === 'running') {
+        setIngesting(true)
+        startPolling(restoredId)
+      }
+    }).catch(() => {})
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Cleanup on unmount
+  useEffect(() => () => { stopPolling() }, [])
+
+  function startPolling(id: string) {
+    stopPolling()
+    pollRef.current = setInterval(async () => {
+      try {
+        const s = await getIngestStatus(id)
+        if (s.step) setIngestStep(s.step)
+        if (s.status === 'done') {
+          stopPolling()
+          setIngesting(false)
+          setIngestStep('')
+          setIngestResult({
+            chunks_saved: s.chunks_saved!,
+            total_chars:  s.total_chars!,
+            txt_url:      s.txt_url!,
+            source:       s.source!,
+          })
+        } else if (s.status === 'error') {
+          stopPolling()
+          setIngesting(false)
+          setIngestStep('')
+          setIngestError(s.error ?? 'Ingest failed')
+        }
+      } catch { /* network blip — keep polling */ }
+    }, 2000)
+  }
+
+  // ── Pipeline launcher ──────────────────────────────────────────────────────
+  const [pipelineSteps,  setPipelineSteps]  = useState<Set<string>>(new Set())
+  const [pipelineLength, setPipelineLength] = useState('10min')
+  const [pipelineLang,   setPipelineLang]   = useState(saved.language ?? 'en')
+  const [launching,      setLaunching]      = useState(false)
+  const [launchResult,   setLaunchResult]   = useState<{
+    job_id: string; status_url: string
+  } | null>(null)
+  const [launchError,    setLaunchError]    = useState<string | null>(null)
+
+  function toggleStep(id: string) {
+    setPipelineSteps(prev => {
+      const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next
+    })
+  }
+
+  async function handleUpsert() {
+    if (!bookId.trim()) return
+    setUpserting(true)
+    setUpsertResult(null)
+    setUpsertError(null)
+    try {
+      const res = await upsertBook({
+        book_id:  bookId.trim(),
+        title:    title.trim()  || undefined,
+        author:   author.trim() || undefined,
+        language,
+        status:   'pending',
+      })
+      setUpsertResult({ book_id: res.book_id, title: res.title, author: res.author })
+      setPipelineLang(language)
+    } catch (e: unknown) {
+      setUpsertError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setUpserting(false)
+    }
+  }
+
+  async function handleIngest() {
+    const targetId = upsertResult?.book_id ?? bookId.trim()
+    if (!targetId) return
+    setIngesting(true)
+    setIngestResult(null)
+    setIngestError(null)
+    setIngestStep('starting…')
+    try {
+      await startIngest(targetId)
+      startPolling(targetId)
+    } catch (e: unknown) {
+      setIngesting(false)
+      setIngestStep('')
+      setIngestError(e instanceof Error ? e.message : 'Failed to start ingest')
+    }
+  }
+
+  // v2: smart launch — auto-creates book row + ingests if needed, then runs pipeline
+  async function handleLaunch() {
+    const targetId = bookId.trim()
+    if (!targetId) return
+    setLaunching(true)
+    setLaunchResult(null)
+    setLaunchError(null)
+    try {
+      const res = await runPipelineV2({
+        book_id:  targetId,
+        language: pipelineLang,
+        steps:    pipelineSteps.size > 0 ? [...pipelineSteps] : [],
+        source:   'catalog',
+        options:  { length: pipelineLength, style: 'narrative' },
+      })
+      setLaunchResult({ job_id: res.job_id, status_url: res.status_url })
+      // Ingest + pipeline run in the background now — reflect any known title.
+      if (!upsertResult && res.title) {
+        setUpsertResult({ book_id: res.book_id, title: res.title, author: res.author })
+      }
+    } catch (e: unknown) {
+      setLaunchError(e instanceof Error ? e.message : 'Failed')
+    } finally {
+      setLaunching(false)
+    }
+  }
+
+  const readyToLaunch = !!(upsertResult?.book_id ?? bookId.trim())
+
+  return (
+    <div className="space-y-6">
+
+      {/* ── Step 1: Insert / update book ─────────────────────────────────── */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+        <div className="px-5 py-3 border-b border-gray-800">
+          <h2 className="text-sm font-semibold text-gray-200">Step 1 — Add book to database</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            For Gutenberg books (numeric id) title &amp; author are fetched automatically.
+            Fill them in manually for custom books.
+          </p>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* Book ID */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Book ID <span className="text-red-400">*</span></label>
+              <input
+                type="text"
+                value={bookId}
+                onChange={e => { setBookId(e.target.value); setUpsertResult(null); setIngestResult(null); setIngestError(null); stopPolling(); setLaunchResult(null) }}
+                placeholder="84  or  custom-id-xyz"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 font-mono placeholder:text-gray-600"
+              />
+            </div>
+
+            {/* Language */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Language</label>
+              <select
+                value={language}
+                onChange={e => setLanguage(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500"
+              >
+                <option value="en">English</option>
+                <option value="ar">Arabic</option>
+              </select>
+            </div>
+
+            {/* Title (optional for Gutenberg) */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">
+                Title <span className="text-gray-600">(auto-fetched for Gutenberg ids)</span>
+              </label>
+              <input
+                type="text"
+                value={title}
+                onChange={e => setTitle(e.target.value)}
+                placeholder="Frankenstein"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 placeholder:text-gray-600"
+              />
+            </div>
+
+            {/* Author (optional for Gutenberg) */}
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">
+                Author <span className="text-gray-600">(auto-fetched for Gutenberg ids)</span>
+              </label>
+              <input
+                type="text"
+                value={author}
+                onChange={e => setAuthor(e.target.value)}
+                placeholder="Mary Shelley"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 placeholder:text-gray-600"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={handleUpsert}
+              disabled={!bookId.trim() || upserting}
+              className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+            >
+              {upserting ? 'Saving…' : 'Save to database'}
+            </button>
+
+            {upsertResult && (
+              <div className="flex items-center gap-2 text-sm text-green-400">
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                <span>
+                  <strong>{upsertResult.title}</strong>
+                  {upsertResult.author && <span className="text-gray-400"> by {upsertResult.author}</span>}
+                  <span className="text-gray-500 font-mono ml-1">[{upsertResult.book_id}]</span>
+                </span>
+              </div>
+            )}
+
+            {upsertError && (
+              <p className="text-sm text-red-400">{upsertError}</p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Step 2: Ingest text (fetch → chunks) ─────────────────────────── */}
+      <div className={`bg-gray-900 border rounded-xl overflow-hidden transition-colors ${
+        readyToLaunch ? 'border-gray-800' : 'border-gray-800/50 opacity-60'
+      }`}>
+        <div className="px-5 py-3 border-b border-gray-800">
+          <h2 className="text-sm font-semibold text-gray-200">Step 2 — Ingest book text</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Downloads the EPUB (or TXT fallback) from your CDN, extracts the full text,
+            chunks it into ~1500-word segments, and saves them to the
+            <code className="text-indigo-400 ml-1">chunks</code> table so the pipeline can summarize it.
+            Skip this step only if chunks already exist for this book.
+          </p>
+        </div>
+        <div className="p-5 flex items-center gap-3 flex-wrap">
+          <button
+            onClick={handleIngest}
+            disabled={!readyToLaunch || ingesting}
+            className="px-5 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors flex items-center gap-2"
+          >
+            {ingesting
+              ? <span className="inline-block w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin" />
+              : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+            }
+            {ingesting
+              ? (ingestStep ? `${ingestStep}…` : 'Starting…')
+              : 'Fetch & ingest text'}
+          </button>
+
+          {ingestResult && (
+            <div className="text-sm text-green-400 flex items-center gap-2">
+              <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+              <span>
+                <strong>{ingestResult.chunks_saved} chunks</strong> saved
+                <span className="text-gray-500 ml-1">
+                  ({(ingestResult.total_chars / 1000).toFixed(0)}k chars
+                  {ingestResult.source ? ` · from ${ingestResult.source.toUpperCase()}` : ''})
+                </span>
+              </span>
+            </div>
+          )}
+
+          {ingestError && <p className="text-sm text-red-400">{ingestError}</p>}
+        </div>
+      </div>
+
+      {/* ── Step 3: Run pipeline ──────────────────────────────────────────── */}
+      <div className={`bg-gray-900 border rounded-xl overflow-hidden transition-colors ${
+        readyToLaunch ? 'border-gray-800' : 'border-gray-800/50 opacity-60'
+      }`}>
+        <div className="px-5 py-3 border-b border-gray-800">
+          <h2 className="text-sm font-semibold text-gray-200">Step 3 — Run pipeline (smart)</h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            Uses <code className="text-indigo-400">/v2/pipeline/run</code> — automatically
+            creates the book row and ingests the EPUB if not already done, then starts the pipeline.
+            Steps 1 and 2 above are optional shortcuts; this button handles everything.
+          </p>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Language</label>
+              <select
+                value={pipelineLang}
+                onChange={e => setPipelineLang(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500"
+              >
+                <option value="en">English</option>
+                <option value="ar">Arabic</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1">Summary length</label>
+              <select
+                value={pipelineLength}
+                onChange={e => setPipelineLength(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500"
+              >
+                {['3min','5min','10min','15min'].map(l => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Step checkboxes */}
+          <div>
+            <label className="block text-xs text-gray-400 mb-2">
+              Steps
+              <span className="text-gray-600 ml-1">(leave all unchecked = run everything)</span>
+            </label>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-y-2 gap-x-4">
+              {PIPELINE_STEPS_LIST.map(s => (
+                <label key={s.id} className="flex items-center gap-2 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={pipelineSteps.has(s.id)}
+                    onChange={() => toggleStep(s.id)}
+                    className="accent-indigo-500 w-3.5 h-3.5"
+                  />
+                  <span className="text-sm text-gray-300 group-hover:text-white">{s.label}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              onClick={handleLaunch}
+              disabled={!readyToLaunch || launching}
+              className="px-5 py-2 rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors flex items-center gap-2"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              {launching ? 'Launching…' : `Run pipeline${pipelineSteps.size > 0 ? ` (${pipelineSteps.size} steps)` : ' (all steps)'}`}
+            </button>
+
+            {launchResult && (
+              <div className="text-sm text-green-400 flex items-center gap-2">
+                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                </svg>
+                Queued!
+                <code className="text-xs text-gray-400 font-mono">{launchResult.job_id}</code>
+                <span className="text-gray-500 text-xs">— check Jobs tab for progress</span>
+              </div>
+            )}
+
+            {launchError && (
+              <p className="text-sm text-red-400">{launchError}</p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
 // ── Prompts tab ───────────────────────────────────────────────────────────────
 
 const PROMPT_ROWS: Array<{
@@ -1668,11 +2146,12 @@ function PromptsTab() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'providers' | 'prompts' | 'jobs' | 'costs' | 'catalog'
+type Tab = 'providers' | 'prompts' | 'books' | 'jobs' | 'costs' | 'catalog'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'providers', label: 'Providers' },
   { id: 'prompts',   label: 'Prompts'   },
+  { id: 'books',     label: 'Books'     },
   { id: 'jobs',      label: 'Jobs'      },
   { id: 'costs',     label: 'Costs'     },
   { id: 'catalog',   label: 'Catalog'   },
@@ -1707,6 +2186,7 @@ export default function AdminPage() {
 
       {tab === 'providers' && <ProvidersTab />}
       {tab === 'prompts'   && <PromptsTab />}
+      {tab === 'books'     && <BooksTab />}
       {tab === 'jobs'      && <JobsTab />}
       {tab === 'costs'     && <CostsTab />}
       {tab === 'catalog'   && <CatalogTab />}

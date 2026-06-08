@@ -1,7 +1,7 @@
-import { useState, useEffect, useCallback } from 'react'
-import { listJobs, getJobStatus } from '../api/pipeline'
-import { retryJob } from '../api/admin'
-import type { PipelineJob, PipelineResult } from '../types'
+import { useState } from 'react'
+import { usePipelineJobs, useJobStatus, useInvalidatePipeline } from '../hooks/usePipeline'
+import { retryJob, rerunSteps } from '../api/admin'
+import type { PipelineResult } from '../types'
 import StatusBadge from '../components/StatusBadge'
 
 function timeAgo(iso: string) {
@@ -21,61 +21,29 @@ const STEP_COLORS: Record<string, string> = {
 }
 
 export default function PipelinePage() {
-  const [jobs,      setJobs]      = useState<PipelineJob[]>([])
-  const [selected,  setSelected]  = useState<PipelineJob | null>(null)
-  const [loading,   setLoading]   = useState(true)
-  const [retrying,  setRetrying]  = useState(false)
-  const [retryMsg,  setRetryMsg]  = useState<string | null>(null)
+  const { data: jobs = [], isLoading: loading } = usePipelineJobs()
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [retrying,   setRetrying]   = useState(false)
+  const [retryMsg,   setRetryMsg]   = useState<string | null>(null)
 
-  // ── Poll the list of jobs every 3s ───────────────────────────────────────
-  // Stable callback — `selected` is NOT in deps, so the interval doesn't
-  // tear down + restart on every click and we avoid the race where a stale
-  // closure value of `selected` overwrites the user's most recent click.
-  const fetchJobs = useCallback(async () => {
-    try {
-      const data = await listJobs()
-      setJobs(data)
-    } catch { /* silent */ }
-    finally { setLoading(false) }
-  }, [])
+  // Multi-step checkbox selection
+  const [checkedSteps, setCheckedSteps] = useState<Set<string>>(new Set())
+  const [regenRunning, setRegenRunning] = useState(false)
+  const [regenMsg,     setRegenMsg]     = useState<string | null>(null)
 
-  useEffect(() => {
-    fetchJobs()
-    const id = setInterval(fetchJobs, 3000)
-    return () => clearInterval(id)
-  }, [fetchJobs])
+  const selectedJob = jobs.find(j => j.id === selectedId) || null
+  const { data: detailedJob } = useJobStatus(
+    selectedId && selectedJob?.status === 'running' ? selectedId : null
+  )
+  const selected = detailedJob || selectedJob
+  const { invalidateAll } = useInvalidatePipeline()
 
-  // ── Poll the selected job's status separately ─────────────────────────────
-  // Only runs while the selected job is queued/running.  When the user clicks
-  // a different job, the previous interval is torn down and any in-flight
-  // request is ignored via the functional setSelected guard below — so a
-  // late response for the old job can never overwrite the user's new pick.
-  const selectedId     = selected?.id
-  const selectedStatus = selected?.status
-  useEffect(() => {
-    if (!selectedId) return
-    if (selectedStatus && !['queued', 'running'].includes(selectedStatus)) return
-
-    let cancelled = false
-    const pollSelected = async () => {
-      try {
-        const updated = await getJobStatus(selectedId)
-        if (cancelled) return
-        setSelected(latest =>
-          // Only apply the update if the user hasn't switched to a different
-          // job in the meantime.  This is the actual switch-back guard.
-          latest && latest.id === updated.id ? updated : latest
-        )
-      } catch { /* silent */ }
-    }
-
-    pollSelected()
-    const id = setInterval(pollSelected, 3000)
-    return () => {
-      cancelled = true
-      clearInterval(id)
-    }
-  }, [selectedId, selectedStatus])
+  // Clear checkboxes whenever the selected job changes
+  const prevSelectedId = useState<string | null>(null)
+  if (prevSelectedId[0] !== selectedId) {
+    prevSelectedId[1](selectedId)
+    if (checkedSteps.size > 0) setCheckedSteps(new Set())
+  }
 
   async function handleRetry(jobId: string) {
     setRetrying(true)
@@ -84,7 +52,7 @@ export default function PipelinePage() {
       await retryJob(jobId)
       setRetryMsg('Queued ✓')
       setTimeout(() => setRetryMsg(null), 3000)
-      await fetchJobs()
+      invalidateAll()
     } catch (err) {
       setRetryMsg(`Error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -92,8 +60,33 @@ export default function PipelinePage() {
     }
   }
 
+  async function handleRegen(steps: string[]) {
+    if (!selected || !steps.length) return
+    setRegenRunning(true)
+    setRegenMsg(null)
+    try {
+      await rerunSteps(selected.id, steps)
+      const label = steps.length === 1 ? steps[0] : `${steps.length} steps`
+      setRegenMsg(`Queued: ${label} ✓`)
+      setTimeout(() => setRegenMsg(null), 4000)
+      setCheckedSteps(new Set())
+      invalidateAll()
+    } catch (err) {
+      setRegenMsg(`Error: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setRegenRunning(false)
+    }
+  }
+
+  function toggleStep(step: string) {
+    setCheckedSteps(prev => {
+      const next = new Set(prev)
+      next.has(step) ? next.delete(step) : next.add(step)
+      return next
+    })
+  }
+
   // Guard: result may be a raw JSON string on jobs stored before the JSONB codec fix.
-  // Parse it if so; otherwise use it directly.
   const rawResult = selected?.result
   const r: PipelineResult | undefined = (() => {
     if (!rawResult) return undefined
@@ -103,13 +96,27 @@ export default function PipelinePage() {
     return rawResult as PipelineResult
   })()
 
-  // Derive first available summary and audio from the keyed objects
   const summaryEntry = r?.summaries ? Object.values(r.summaries)[0] : null
-  const audioEntry   = r?.audio     ? Object.entries(r.audio)[0]    : null  // ["full_en", {...}]
+  const audioEntry   = r?.audio     ? Object.entries(r.audio)[0]    : null
+
+  const chaptersWithAudio = (() => {
+    if (!r?.chapters) return r?.chapters
+    const filesChapMap: Record<number, string | undefined> = {}
+    for (const fc of (r.files?.chapters ?? [])) {
+      if (fc.audio_url) filesChapMap[fc.index] = fc.audio_url
+    }
+    const lang = summaryEntry?.language ?? 'en'
+    return r.chapters.map(ch => {
+      const audioKey = `audio_${lang}` as keyof typeof ch
+      if (ch[audioKey]) return ch
+      const fallback = filesChapMap[ch.index]
+      if (!fallback) return ch
+      return { ...ch, [audioKey]: fallback }
+    })
+  })()
 
   return (
     <div className="flex h-screen">
-
       {/* ── Job list sidebar ─────────────────────────────────────────────── */}
       <div className="w-80 shrink-0 border-r border-gray-800 flex flex-col">
         <div className="p-4 border-b border-gray-800">
@@ -126,14 +133,13 @@ export default function PipelinePage() {
             <p className="text-xs text-gray-600 p-4">No jobs yet.</p>
           )}
           {jobs.map(job => {
-            // Normalize result: handle legacy JSON string rows
             const jr = typeof job.result === 'string'
               ? (() => { try { return JSON.parse(job.result as string) } catch { return null } })()
               : job.result
             return (
-              <button key={job.id} onClick={() => setSelected(job)}
+              <button key={job.id} onClick={() => setSelectedId(job.id)}
                 className={`w-full text-left px-4 py-3 border-b border-gray-800/50 hover:bg-gray-800/50 transition-colors ${
-                  selected?.id === job.id ? 'bg-gray-800' : ''
+                  selectedId === job.id ? 'bg-gray-800' : ''
                 }`}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-xs font-medium text-gray-200 truncate">
@@ -162,7 +168,6 @@ export default function PipelinePage() {
 
         {selected && (
           <div className="max-w-3xl space-y-6">
-
             {/* Header */}
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
@@ -179,17 +184,12 @@ export default function PipelinePage() {
                 {r?.processing_time && (
                   <span className="text-xs text-gray-500">{r.processing_time}</span>
                 )}
-
-                {/* Retry counter badge */}
                 {selected.retry_count > 0 && (
                   <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400 border border-yellow-800">
                     {selected.retry_count}/{selected.max_retries} retries
                   </span>
                 )}
-
-                {/* Retry button — available for failed or partial jobs */}
                 {(selected.status === 'failed' || selected.status === 'partial') && (() => {
-                  // Compute which steps will be retried so we can show a tooltip
                   const failedSteps = r?.steps
                     ? Object.entries(r.steps).filter(([, s]) => s === 'failed').map(([k]) => k)
                     : []
@@ -224,19 +224,113 @@ export default function PipelinePage() {
               </div>
             </div>
 
-            {/* Step status pills */}
-            {r?.steps && Object.keys(r.steps).length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {Object.entries(r.steps).map(([step, s]) => (
-                  <span key={step}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border text-xs font-medium ${
-                      STEP_COLORS[s] ?? 'bg-gray-800 text-gray-400 border-gray-700'
-                    }`}>
-                    {step}
-                  </span>
-                ))}
-              </div>
-            )}
+            {/* Pipeline steps — checkbox multi-select + Regen Selected / Regen All */}
+            {r?.steps && Object.keys(r.steps).length > 0 && (() => {
+              const isBusy = selected.status === 'running' || selected.status === 'queued'
+              const allStepKeys = Object.keys(r.steps!)
+              const allChecked  = allStepKeys.length > 0 && allStepKeys.every(s => checkedSteps.has(s))
+              return (
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                  {/* Header row */}
+                  <div className="flex items-center justify-between mb-3 gap-3">
+                    <div className="flex items-center gap-2">
+                      {/* Select All checkbox */}
+                      {!isBusy && (
+                        <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={allChecked}
+                            onChange={() => setCheckedSteps(allChecked ? new Set() : new Set(allStepKeys))}
+                            className="accent-indigo-500 w-3.5 h-3.5"
+                          />
+                          <span className="text-[11px] text-gray-500">All</span>
+                        </label>
+                      )}
+                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Steps</p>
+                      {checkedSteps.size > 0 && (
+                        <span className="text-[11px] text-indigo-400">{checkedSteps.size} selected</span>
+                      )}
+                    </div>
+
+                    {/* Action buttons */}
+                    {!isBusy && (
+                      <div className="flex items-center gap-2">
+                        {regenMsg && (
+                          <span className={`text-xs ${regenMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
+                            {regenMsg}
+                          </span>
+                        )}
+                        {/* Regen Selected — only when checkboxes chosen */}
+                        {checkedSteps.size > 0 && (
+                          <button
+                            onClick={() => handleRegen([...checkedSteps])}
+                            disabled={regenRunning}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+                          >
+                            {regenRunning
+                              ? <span className="inline-block w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                              : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8 8 0 01-14.83-3M14.418 15H20" />
+                                </svg>
+                            }
+                            Regen {checkedSteps.size} step{checkedSteps.size > 1 ? 's' : ''}
+                          </button>
+                        )}
+                        {/* Regen All */}
+                        <button
+                          onClick={() => handleRegen(allStepKeys)}
+                          disabled={regenRunning}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-400 hover:text-white text-xs font-medium transition-colors border border-gray-700 hover:border-indigo-500"
+                        >
+                          {regenRunning && checkedSteps.size === 0
+                            ? <span className="inline-block w-3 h-3 border border-current/40 border-t-current rounded-full animate-spin" />
+                            : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8 8 0 01-14.83-3M14.418 15H20" />
+                              </svg>
+                          }
+                          Regen All
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Step rows with checkboxes */}
+                  <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
+                    {Object.entries(r.steps!).map(([step, s]) => {
+                      const isChecked = checkedSteps.has(step)
+                      return (
+                        <label
+                          key={step}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer select-none transition-all ${
+                            isBusy ? 'cursor-default opacity-60' : 'hover:brightness-125'
+                          } ${
+                            isChecked
+                              ? 'ring-2 ring-indigo-500 ring-offset-1 ring-offset-gray-900 ' + (STEP_COLORS[s] ?? 'bg-gray-800 text-gray-400 border-gray-700')
+                              : STEP_COLORS[s] ?? 'bg-gray-800 text-gray-400 border-gray-700'
+                          }`}
+                        >
+                          {!isBusy && (
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleStep(step)}
+                              className="accent-indigo-400 w-3.5 h-3.5 shrink-0"
+                            />
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-medium truncate">{step}</p>
+                            <p className="text-[10px] opacity-60 capitalize">{s}</p>
+                          </div>
+                          {s === 'running' && (
+                            <span className="ml-auto inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
+                          )}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Quick summary */}
             {r?.quick_summary && (
@@ -249,7 +343,6 @@ export default function PipelinePage() {
             {/* Assets grid */}
             {r && (
               <div className="grid grid-cols-3 gap-4">
-
                 {/* Cover */}
                 <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Cover</p>
@@ -280,144 +373,57 @@ export default function PipelinePage() {
                     <>
                       <audio controls src={audioEntry[1].url}
                         className="w-full mb-2" style={{ accentColor: '#6366f1' }} />
-                      <p className="text-xs text-gray-500">
-                        {audioEntry[1].duration && `${audioEntry[1].duration}`}
-                        {audioEntry[1].size_mb  && ` · ${audioEntry[1].size_mb} MB`}
-                      </p>
                       <a href={audioEntry[1].url} target="_blank" rel="noreferrer"
-                        className="text-xs text-indigo-400 hover:underline mt-1 block">Download ↗</a>
+                        className="text-xs text-indigo-400 hover:underline">Download MP3 ↗</a>
                     </>
                   ) : (
                     <p className="text-xs text-gray-600">Not generated</p>
                   )}
                 </div>
 
-                {/* Mind map */}
+                {/* Mindmap */}
                 <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Mind Map</p>
                   {r.mindmap?.url ? (
                     <>
-                      <iframe src={r.mindmap.url} title="Mind map"
-                        className="w-full h-32 rounded border border-gray-700 mb-2" />
+                      <div className="aspect-video bg-gray-800 rounded-lg mb-2 overflow-hidden">
+                        <iframe src={r.mindmap.url} title="Mind map"
+                          className="w-full h-full border-0" />
+                      </div>
                       <a href={r.mindmap.url} target="_blank" rel="noreferrer"
-                        className="text-xs text-indigo-400 hover:underline">Open ↗</a>
+                        className="text-xs text-indigo-400 hover:underline">Open SVG ↗</a>
                     </>
                   ) : (
                     <p className="text-xs text-gray-600">Not generated</p>
                   )}
                 </div>
-
-                {/* Enriched EPUB — original book with the AI summary injected as the first chapter */}
-                {(() => {
-                  const epubEntries = r?.epub ? Object.entries(r.epub) : []
-                  return (
-                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
-                        Enriched EPUB
-                        {epubEntries.length > 0 && (
-                          <span className="normal-case text-gray-600 ml-1">({epubEntries[0][0]})</span>
-                        )}
-                      </p>
-                      {epubEntries.length > 0 && epubEntries[0][1]?.url ? (
-                        <>
-                          <div className="flex items-center gap-2 text-3xl mb-2" aria-hidden>📖</div>
-                          <p className="text-xs text-gray-400 mb-2 leading-relaxed">
-                            The original book with your AI summary added as the first chapter
-                            {r?.metadata?.cover_url ? ' and the new cover applied' : ''}.
-                          </p>
-                          <a href={epubEntries[0][1].url} target="_blank" rel="noreferrer"
-                             className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:underline">
-                            Download .epub ↗
-                          </a>
-                        </>
-                      ) : (
-                        <p className="text-xs text-gray-600">Not generated</p>
-                      )}
-                    </div>
-                  )
-                })()}
-
-                {/* Summary Video — slideshow with TTS narration, subtitles, mindmap reveal */}
-                {(() => {
-                  const videoEntries = r?.video ? Object.entries(r.video) : []
-                  return (
-                    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 sm:col-span-2 lg:col-span-3">
-                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-2">
-                        <span>Summary Video</span>
-                        {videoEntries.length > 0 && (
-                          <span className="normal-case text-gray-600">
-                            ({videoEntries[0][0]})
-                            {videoEntries[0][1]?.provider && ` · ${videoEntries[0][1].provider}`}
-                          </span>
-                        )}
-                        {videoEntries[0]?.[1]?.silent && (
-                          <span className="normal-case text-[10px] px-1.5 py-0.5 rounded-full bg-amber-900/40 text-amber-300 border border-amber-800 font-mono">
-                            🔇 silent preview
-                          </span>
-                        )}
-                      </p>
-                      {videoEntries.length > 0 && videoEntries[0][1]?.url ? (
-                        <div className="flex flex-col sm:flex-row gap-4 items-start">
-                          <video
-                            controls
-                            src={videoEntries[0][1].url}
-                            className="rounded-lg border border-gray-700 max-h-[420px] w-auto bg-black"
-                            style={{ accentColor: '#6366f1' }}
-                          />
-                          <div className="flex-1 min-w-0">
-                            <p className="text-xs text-gray-500 mb-2">
-                              Slideshow with cover, chapter cards, mindmap reveal, and
-                              burned-in subtitles aligned to the TTS narration.
-                            </p>
-                            <div className="grid grid-cols-2 gap-2 text-xs">
-                              {videoEntries[0][1].duration_seconds != null && (
-                                <div>
-                                  <span className="text-gray-500">Duration:</span>{' '}
-                                  <span className="text-gray-200 font-mono">
-                                    {Math.floor(videoEntries[0][1].duration_seconds! / 60)}m{' '}
-                                    {videoEntries[0][1].duration_seconds! % 60}s
-                                  </span>
-                                </div>
-                              )}
-                              {videoEntries[0][1].size_mb != null && (
-                                <div>
-                                  <span className="text-gray-500">Size:</span>{' '}
-                                  <span className="text-gray-200 font-mono">
-                                    {videoEntries[0][1].size_mb} MB
-                                  </span>
-                                </div>
-                              )}
-                              {videoEntries[0][1].width != null && videoEntries[0][1].height != null && (
-                                <div>
-                                  <span className="text-gray-500">Resolution:</span>{' '}
-                                  <span className="text-gray-200 font-mono">
-                                    {videoEntries[0][1].width}×{videoEntries[0][1].height}
-                                  </span>
-                                </div>
-                              )}
-                              {videoEntries[0][1].provider && (
-                                <div>
-                                  <span className="text-gray-500">Provider:</span>{' '}
-                                  <span className="text-gray-200 font-mono">
-                                    {videoEntries[0][1].provider}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                            <a href={videoEntries[0][1].url} target="_blank" rel="noreferrer"
-                               className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:underline mt-3">
-                              Download .mp4 ↗
-                            </a>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-xs text-gray-600">Not generated</p>
-                      )}
-                    </div>
-                  )
-                })()}
               </div>
             )}
+
+            {/* Chapter Audio */}
+            {chaptersWithAudio && chaptersWithAudio.some(ch => ch.audio_en || ch.audio_ar) && (() => {
+              const audioChapters = chaptersWithAudio.filter(ch => ch.audio_en || ch.audio_ar)
+              return (
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
+                    Chapter Audio ({audioChapters.length})
+                  </p>
+                  <div className="space-y-3 max-h-96 overflow-auto">
+                    {audioChapters.map(ch => (
+                      <div key={ch.index} className="border-b border-gray-800 pb-3 last:border-0">
+                        <p className="text-sm text-gray-300 mb-2">{ch.title}</p>
+                        {ch.audio_en && (
+                          <audio controls src={ch.audio_en} className="w-full" style={{ accentColor: '#6366f1' }} />
+                        )}
+                        {ch.audio_ar && (
+                          <audio controls src={ch.audio_ar} className="w-full mt-2" style={{ accentColor: '#10b981' }} />
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
 
             {/* Full summary */}
             {summaryEntry && (
@@ -439,134 +445,13 @@ export default function PipelinePage() {
               </div>
             )}
 
-            {/* Chapter Audio — only shown when at least one chapter has audio */}
-            {r?.chapters && r.chapters.some(ch => ch.audio_en || ch.audio_ar) && (() => {
-              const audioChapters = r.chapters.filter(ch => ch.audio_en || ch.audio_ar)
-              return (
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
-                    Chapter Audio ({audioChapters.length})
-                  </p>
-                  <div className="space-y-3">
-                    {audioChapters.map(ch => (
-                      <div key={ch.index} className="bg-gray-950 border border-gray-800 rounded-lg p-3">
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <div className="min-w-0 flex-1">
-                            <p className="text-sm text-gray-200 font-medium truncate">
-                              <span className="text-gray-500 mr-2">{ch.index}.</span>
-                              {ch.title}
-                            </p>
-                            <p className="text-xs text-gray-500 mt-0.5">~{ch.read_time_min} min read</p>
-                          </div>
-                          <div className="flex gap-1 shrink-0">
-                            {ch.audio_en && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-indigo-900/40 text-indigo-300 border border-indigo-800 font-mono">EN</span>
-                            )}
-                            {ch.audio_ar && (
-                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-900/40 text-emerald-300 border border-emerald-800 font-mono">AR</span>
-                            )}
-                          </div>
-                        </div>
-
-                        {ch.audio_en && (
-                          <div className="mb-2">
-                            <audio controls src={ch.audio_en} className="w-full" style={{ accentColor: '#6366f1' }} />
-                            <a href={ch.audio_en} target="_blank" rel="noreferrer"
-                               className="text-[11px] text-indigo-400 hover:underline mt-1 inline-block">Download EN ↗</a>
-                          </div>
-                        )}
-                        {ch.audio_ar && (
-                          <div>
-                            <audio controls src={ch.audio_ar} className="w-full" style={{ accentColor: '#10b981' }} />
-                            <a href={ch.audio_ar} target="_blank" rel="noreferrer"
-                               className="text-[11px] text-emerald-400 hover:underline mt-1 inline-block">Download AR ↗</a>
-                          </div>
-                        )}
-
-                        {/* Chapter summary — collapsible so the card stays compact when many chapters are listed.
-                            Direction inherits from the active summary's language so Arabic books render RTL. */}
-                        {ch.summary && (() => {
-                          const isArabic =
-                            (summaryEntry?.language === 'ar') ||
-                            (!!ch.audio_ar && !ch.audio_en)
-                          return (
-                            <details className="mt-3 border-t border-gray-800/80 pt-2 group/sum">
-                              <summary className="text-[11px] uppercase tracking-wide text-gray-500 cursor-pointer select-none hover:text-gray-300 flex items-center gap-1.5">
-                                <span className="transition-transform group-open/sum:rotate-90 inline-block">▸</span>
-                                <span>Chapter summary</span>
-                                <span className="text-gray-600 normal-case ml-1">
-                                  · {ch.summary.split(/\s+/).filter(Boolean).length} words
-                                </span>
-                              </summary>
-                              <p
-                                dir={isArabic ? 'rtl' : 'ltr'}
-                                className={`mt-2 text-xs text-gray-300 leading-relaxed whitespace-pre-wrap ${
-                                  isArabic ? 'font-arabic text-right' : ''
-                                }`}
-                              >
-                                {ch.summary}
-                              </p>
-                            </details>
-                          )
-                        })()}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })()}
-
-            {/* Chapter Mindmaps — one mindmap per chapter when the pipeline generated them */}
-            {r?.chapters && r.chapters.some(ch => ch.mindmap_url) && (() => {
-              const mmChapters = r.chapters.filter(ch => ch.mindmap_url)
-              return (
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
-                    Chapter Mindmaps ({mmChapters.length})
-                  </p>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {mmChapters.map(ch => (
-                      <div key={ch.index} className="bg-gray-950 border border-gray-800 rounded-lg p-3">
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <p className="text-sm text-gray-200 font-medium truncate">
-                            <span className="text-gray-500 mr-2">{ch.index}.</span>
-                            {ch.title}
-                          </p>
-                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-fuchsia-900/40 text-fuchsia-300 border border-fuchsia-800 font-mono shrink-0">
-                            {ch.mindmap_format ?? 'mindmap'}
-                          </span>
-                        </div>
-
-                        {/* Mermaid mindmaps are SVG — render with <iframe>. JSON renders the structure as text. */}
-                        {ch.mindmap_format === 'json' && ch.mindmap_data ? (
-                          <pre className="text-[11px] text-gray-400 bg-gray-900 border border-gray-800 rounded p-2 overflow-auto max-h-40">
-                            {JSON.stringify(ch.mindmap_data, null, 2)}
-                          </pre>
-                        ) : ch.mindmap_url ? (
-                          <iframe src={ch.mindmap_url} title={`Mindmap ${ch.index}`}
-                                  className="w-full h-40 rounded border border-gray-700 bg-white" />
-                        ) : null}
-
-                        {ch.mindmap_url && (
-                          <a href={ch.mindmap_url} target="_blank" rel="noreferrer"
-                             className="text-[11px] text-fuchsia-400 hover:underline mt-2 inline-block">
-                            Open ↗
-                          </a>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })()}
-
             {/* Chapters */}
             {r?.chapters && r.chapters.length > 0 && (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
                 <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
                   Chapters ({r.chapters.length})
                 </p>
-                <div className="space-y-2">
+                <div className="space-y-1 max-h-96 overflow-auto">
                   {r.chapters.map(ch => (
                     <details key={ch.index} className="group">
                       <summary className="flex items-center justify-between cursor-pointer py-2 px-3 rounded-lg hover:bg-gray-800 text-sm text-gray-300">
@@ -613,10 +498,10 @@ export default function PipelinePage() {
                 {JSON.stringify(selected, null, 2)}
               </pre>
             </details>
-
           </div>
         )}
       </div>
+      
     </div>
   )
 }

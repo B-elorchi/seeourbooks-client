@@ -53,6 +53,22 @@ export interface SummaryAsset {
   language:   string
 }
 
+export interface FileChapterEntry {
+  index:       number
+  title?:      string
+  audio_url?:  string
+  mindmap_url?: string
+}
+
+export interface FilesAsset {
+  cover?:      string
+  audio_full?: string
+  mindmap?:    string
+  epub?:       string
+  video?:      string
+  chapters?:   FileChapterEntry[]
+}
+
 export interface PipelineResult {
   book_id:         string
   status:          'done' | 'partial' | 'failed'
@@ -77,6 +93,7 @@ export interface PipelineResult {
   video?:         Record<string, VideoAsset> | null       // e.g. {"summary_en": {url, duration_seconds, ...}}
   chapters:       ChapterResult[]
   errors:         Record<string, string>
+  files?:         FilesAsset   // Legacy field for older jobs
 }
 
 export interface VideoAsset {
