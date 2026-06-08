@@ -1,8 +1,11 @@
-import { useState } from 'react'
+import { useState, lazy, Suspense } from 'react'
 import { usePipelineJobs, useJobStatus, useInvalidatePipeline } from '../hooks/usePipeline'
 import { retryJob, rerunSteps } from '../api/admin'
 import type { PipelineResult } from '../types'
 import StatusBadge from '../components/StatusBadge'
+
+// Lazy-loaded so the heavy epubjs library only downloads when a preview opens.
+const EpubReader = lazy(() => import('../components/EpubReader'))
 
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime()
@@ -30,6 +33,9 @@ export default function PipelinePage() {
   const [checkedSteps, setCheckedSteps] = useState<Set<string>>(new Set())
   const [regenRunning, setRegenRunning] = useState(false)
   const [regenMsg,     setRegenMsg]     = useState<string | null>(null)
+
+  // EPUB preview modal
+  const [epubPreview, setEpubPreview] = useState<string | null>(null)
 
   const selectedJob = jobs.find(j => j.id === selectedId) || null
   const { data: detailedJob } = useJobStatus(
@@ -98,6 +104,9 @@ export default function PipelinePage() {
 
   const summaryEntry = r?.summaries ? Object.values(r.summaries)[0] : null
   const audioEntry   = r?.audio     ? Object.entries(r.audio)[0]    : null
+  const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.epub ?? null)
+  const videoEntry   = r?.video     ? Object.entries(r.video)[0]     : null
+  const videoUrl     = videoEntry?.[1]?.url ?? r?.files?.video ?? null
 
   const chaptersWithAudio = (() => {
     if (!r?.chapters) return r?.chapters
@@ -342,61 +351,117 @@ export default function PipelinePage() {
 
             {/* Assets grid */}
             {r && (
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 gap-4">
+
                 {/* Cover */}
                 <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Cover</p>
-                  {r?.metadata?.cover_url ? (
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">🖼 Cover</p>
+                  {r.metadata?.cover_url ? (
                     <>
                       <img src={r.metadata.cover_url} alt={r.metadata.cover_alt_text ?? ''}
-                        className="w-full rounded-lg mb-2 object-cover aspect-[2/3]" />
+                        className="w-full rounded-lg mb-2 object-cover max-h-64" />
                       {r.metadata.cover_alt_text && (
-                        <p className="text-xs text-gray-500 leading-relaxed">{r.metadata.cover_alt_text}</p>
+                        <p className="text-xs text-gray-500 leading-relaxed mb-2">{r.metadata.cover_alt_text}</p>
                       )}
                       <a href={r.metadata.cover_url} target="_blank" rel="noreferrer"
-                        className="text-xs text-indigo-400 hover:underline mt-2 block">Open ↗</a>
+                        className="text-xs text-indigo-400 hover:underline">Open image ↗</a>
                     </>
-                  ) : (
-                    <p className="text-xs text-gray-600">Not generated</p>
-                  )}
+                  ) : <p className="text-xs text-gray-600">Not generated</p>}
                 </div>
 
-                {/* Audio */}
+                {/* Full Audio */}
                 <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
-                    Full Audio
-                    {audioEntry && (
-                      <span className="normal-case text-gray-600 ml-1">({audioEntry[0]})</span>
-                    )}
+                    🔊 Full Audio
+                    {audioEntry && <span className="normal-case text-gray-600 ml-1">({audioEntry[0]})</span>}
                   </p>
                   {audioEntry?.[1]?.url ? (
                     <>
                       <audio controls src={audioEntry[1].url}
                         className="w-full mb-2" style={{ accentColor: '#6366f1' }} />
+                      {audioEntry[1].duration && (
+                        <p className="text-xs text-gray-500 mb-2">Duration: {audioEntry[1].duration}</p>
+                      )}
                       <a href={audioEntry[1].url} target="_blank" rel="noreferrer"
                         className="text-xs text-indigo-400 hover:underline">Download MP3 ↗</a>
                     </>
-                  ) : (
-                    <p className="text-xs text-gray-600">Not generated</p>
-                  )}
+                  ) : <p className="text-xs text-gray-600">Not generated</p>}
                 </div>
 
-                {/* Mindmap */}
+                {/* Mind Map */}
                 <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Mind Map</p>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">🗺 Mind Map</p>
                   {r.mindmap?.url ? (
                     <>
                       <div className="aspect-video bg-gray-800 rounded-lg mb-2 overflow-hidden">
-                        <iframe src={r.mindmap.url} title="Mind map"
-                          className="w-full h-full border-0" />
+                        <iframe src={r.mindmap.url} title="Mind map" className="w-full h-full border-0" />
                       </div>
                       <a href={r.mindmap.url} target="_blank" rel="noreferrer"
-                        className="text-xs text-indigo-400 hover:underline">Open SVG ↗</a>
+                        className="text-xs text-indigo-400 hover:underline">Open ↗</a>
                     </>
-                  ) : (
-                    <p className="text-xs text-gray-600">Not generated</p>
-                  )}
+                  ) : <p className="text-xs text-gray-600">Not generated</p>}
                 </div>
+
+                {/* EPUB */}
+                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">📚 EPUB</p>
+                  {epubUrl ? (
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg">
+                        <svg className="w-8 h-8 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
+                            d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                        </svg>
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm text-gray-200 font-medium truncate">
+                            {epubUrl.split('/').pop() ?? 'book.epub'}
+                          </p>
+                          <p className="text-xs text-gray-500 truncate mt-0.5">{epubUrl}</p>
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setEpubPreview(epubUrl)}
+                          className="flex items-center justify-center gap-2 flex-1 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium transition-colors">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                          </svg>
+                          Preview
+                        </button>
+                        <a href={epubUrl} target="_blank" rel="noreferrer"
+                          className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium transition-colors border border-gray-700">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                          Download
+                        </a>
+                      </div>
+                    </div>
+                  ) : <p className="text-xs text-gray-600">Not generated</p>}
+                </div>
+
+                {/* Video (full width if present) */}
+                {videoUrl && (
+                  <div className="col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-4">
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
+                      🎬 Video
+                      {videoEntry && <span className="normal-case text-gray-600 ml-1">({videoEntry[0]})</span>}
+                    </p>
+                    <video controls src={videoUrl} className="w-full rounded-lg mb-2 max-h-72"
+                      poster={r.metadata?.cover_url ?? undefined} />
+                    <div className="flex items-center gap-4 text-xs text-gray-500">
+                      {videoEntry?.[1]?.duration_seconds && (
+                        <span>Duration: {Math.floor(videoEntry[1].duration_seconds / 60)}:{String(videoEntry[1].duration_seconds % 60).padStart(2, '0')}</span>
+                      )}
+                      {videoEntry?.[1]?.size_mb && <span>Size: {videoEntry[1].size_mb.toFixed(1)} MB</span>}
+                      {videoEntry?.[1]?.provider && <span>Provider: {videoEntry[1].provider}</span>}
+                      <a href={videoUrl} target="_blank" rel="noreferrer"
+                        className="text-indigo-400 hover:underline ml-auto">Download ↗</a>
+                    </div>
+                  </div>
+                )}
+
               </div>
             )}
 
@@ -501,7 +566,17 @@ export default function PipelinePage() {
           </div>
         )}
       </div>
-      
+
+      {/* EPUB preview modal */}
+      {epubPreview && (
+        <Suspense fallback={
+          <div className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center">
+            <span className="inline-block w-8 h-8 border-2 border-gray-600 border-t-indigo-500 rounded-full animate-spin" />
+          </div>
+        }>
+          <EpubReader url={epubPreview} onClose={() => setEpubPreview(null)} />
+        </Suspense>
+      )}
     </div>
   )
 }
