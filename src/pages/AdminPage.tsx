@@ -2,11 +2,12 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import {
   getConfig, setConfig, getMetrics, getAdminJobs, retryJob, rerunSteps, getCosts,
-  getOpenRouterModels,
+  getOpenRouterModels, getElevenLabsVoices,
   getCatalogTables, getCatalog,
   upsertBook, startIngest, getIngestStatus, runPipelineV2, cancelJob, deleteJob,
   previewTTS,
 } from '../api/admin'
+import type { ElevenLabsVoice } from '../api/admin'
 import type { AdminMetrics, PipelineJob, AdminCosts, CatalogTableMeta } from '../types'
 import StatusBadge from '../components/StatusBadge'
 
@@ -57,7 +58,7 @@ function flattenOptions(opts: OptionList): string[] {
 // ── Config rows ───────────────────────────────────────────────────────────────
 const PROVIDER_GROUPS: Array<{
   title: string
-  rows: Array<{ key: string; label: string; options: OptionList; type?: RowType; placeholder?: string }>
+  rows: Array<{ key: string; label: string; options: OptionList; type?: RowType; placeholder?: string; labelMap?: Record<string, string> }>
 }> = [
   {
     title: 'Summarization',
@@ -124,6 +125,19 @@ const PROVIDER_GROUPS: Array<{
         options: [],
         type: 'text',
         placeholder: 'Cartesia UUID  |  ElevenLabs ID  |  Gemini/OpenRouter voice name',
+      },
+      // ── ElevenLabs (voices fetched live from the API) ─────────────────────────
+      {
+        key: 'ELEVENLABS_VOICE_EN', label: 'ElevenLabs voice (EN)',
+        options: [],          // populated live from /api/admin/elevenlabs-voices
+        type: 'combo',
+        placeholder: 'Pick an ElevenLabs voice…',
+      },
+      {
+        key: 'ELEVENLABS_VOICE_AR', label: 'ElevenLabs voice (AR)',
+        options: [],          // populated live from /api/admin/elevenlabs-voices
+        type: 'combo',
+        placeholder: 'Pick an ElevenLabs voice…',
       },
       // ── Cartesia ────────────────────────────────────────────────────────────
       {
@@ -457,12 +471,16 @@ function SearchableSelect({
   options,
   placeholder,
   onChange,
+  labelMap,
 }: {
   value: string
   options: OptionList
   placeholder?: string
   onChange: (v: string) => void
+  labelMap?: Record<string, string>   // optional value→display-label map
 }) {
+  // Display text for an option value (falls back to the value itself).
+  const lbl = (v: string) => labelMap?.[v] ?? v
   const [open, setOpen]         = useState(false)
   const [query, setQuery]       = useState('')
   const [pos, setPos]           = useState<{ top: number; left: number; width: number } | null>(null)
@@ -518,9 +536,11 @@ function SearchableSelect({
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  // Filter the option list against the search query
+  // Filter the option list against the search query (matches value OR label)
   const matches = (s: string) =>
-    !query || s.toLowerCase().includes(query.toLowerCase())
+    !query ||
+    s.toLowerCase().includes(query.toLowerCase()) ||
+    lbl(s).toLowerCase().includes(query.toLowerCase())
 
   const flatTop:    string[]   = []
   const grouped:    OptGroup[] = []
@@ -584,7 +604,7 @@ function SearchableSelect({
               value === opt ? 'bg-indigo-900/40 text-indigo-200' : 'text-gray-200'
             }`}
           >
-            {opt}
+            {lbl(opt)}
           </button>
         ))}
 
@@ -603,7 +623,7 @@ function SearchableSelect({
                   value === opt ? 'bg-indigo-900/40 text-indigo-200' : 'text-gray-200'
                 }`}
               >
-                {opt}
+                {lbl(opt)}
               </button>
             ))}
           </div>
@@ -644,7 +664,7 @@ function SearchableSelect({
         className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 w-[320px] text-left flex items-center justify-between gap-2 hover:border-gray-600"
       >
         <span className={`truncate ${value ? 'font-mono' : 'text-gray-500'}`}>
-          {value || placeholder || 'Select…'}
+          {value ? lbl(value) : (placeholder || 'Select…')}
         </span>
         <span className="text-gray-500 text-xs">▾</span>
       </button>
@@ -736,6 +756,8 @@ function ProvidersTab() {
   const [orImageModels, setOrImageModels] = useState<string[] | null>(null)
   const [orChatModels,  setOrChatModels]  = useState<string[] | null>(null)
   const [orVisionModels, setOrVisionModels] = useState<string[] | null>(null)
+  // Live ElevenLabs voices (fetched from the API), grouped by language.
+  const [elVoices, setElVoices] = useState<ElevenLabsVoice[] | null>(null)
 
   useEffect(() => {
     getConfig()
@@ -756,6 +778,9 @@ function ProvidersTab() {
     getOpenRouterModels('vision')
       .then(r => { if (r.models?.length) setOrVisionModels(r.models.map(m => m.id)) })
       .catch(() => {})
+    getElevenLabsVoices()
+      .then(r => { if (r.voices?.length) setElVoices(r.voices) })
+      .catch(() => {/* no key / offline → leave as free-text combo */})
   }, [])
 
   // Build the live PROVIDER_GROUPS by injecting the live OpenRouter lists
@@ -807,6 +832,31 @@ function ProvidersTab() {
     const VISION_ROW_KEYS = new Set(['ALTTEXT_MODEL_EN', 'ALTTEXT_MODEL_AR'])
     const IMAGE_ROW_KEYS = new Set(['IMAGE_MODEL_EN', 'IMAGE_MODEL_AR'])
 
+    // ── ElevenLabs voices grouped by language (Arabic vs English vs Other) ────
+    // Returns { options: grouped voice_ids, labelMap: id → "Name · accent" }.
+    function buildElevenLabsOptions(lang: 'en' | 'ar'): { options: OptionList; labelMap: Record<string, string> } | null {
+      if (!elVoices || elVoices.length === 0) return null
+      const labelMap: Record<string, string> = {}
+      for (const v of elVoices) {
+        const meta = [v.accent || v.language, v.gender].filter(Boolean).join(', ')
+        labelMap[v.voice_id] = meta ? `${v.name} · ${meta}` : v.name
+      }
+      const isLangMatch = (v: ElevenLabsVoice) => {
+        const l = (v.language || '').toLowerCase()
+        const a = (v.accent || '').toLowerCase()
+        if (lang === 'ar') return l.includes('ar') || a.includes('arab')
+        return l.includes('en') || a.includes('english') || a.includes('american') || a.includes('british')
+      }
+      const matched = elVoices.filter(isLangMatch).map(v => v.voice_id)
+      const others  = elVoices.filter(v => !isLangMatch(v)).map(v => v.voice_id)
+      const groups: OptGroup[] = []
+      if (matched.length) groups.push(g(lang === 'ar' ? '🟢 Arabic voices' : '🟢 English voices', matched))
+      if (others.length)  groups.push(g('All other voices', others))
+      return { options: groups, labelMap }
+    }
+    const elEN = buildElevenLabsOptions('en')
+    const elAR = buildElevenLabsOptions('ar')
+
     return PROVIDER_GROUPS.map(group => ({
       ...group,
       rows: group.rows.map(row => {
@@ -826,10 +876,16 @@ function ProvidersTab() {
         if (VISION_ROW_KEYS.has(row.key)) {
           return { ...row, type: 'combo' as RowType, options: buildVisionOptions(row.options) }
         }
+        if (row.key === 'ELEVENLABS_VOICE_EN' && elEN) {
+          return { ...row, type: 'combo' as RowType, options: elEN.options, labelMap: elEN.labelMap }
+        }
+        if (row.key === 'ELEVENLABS_VOICE_AR' && elAR) {
+          return { ...row, type: 'combo' as RowType, options: elAR.options, labelMap: elAR.labelMap }
+        }
         return row
       }),
     }))
-  }, [orImageModels, orChatModels, orVisionModels])
+  }, [orImageModels, orChatModels, orVisionModels, elVoices])
 
   async function handleChange(key: string, value: string) {
     setConfigState(prev => ({ ...prev, [key]: value }))
@@ -898,6 +954,7 @@ function ProvidersTab() {
                         options={row.options}
                         placeholder={row.placeholder ?? 'Pick or search a model…'}
                         onChange={v => handleChange(row.key, v)}
+                        labelMap={row.labelMap}
                       />
                     ) : (
                     <select

@@ -72,6 +72,22 @@ export async function getOpenRouterModels(
   return res.json()
 }
 
+export interface ElevenLabsVoice {
+  voice_id:    string
+  name:        string
+  category:    string
+  language:    string
+  accent:      string
+  gender:      string
+  description: string
+}
+
+export async function getElevenLabsVoices(): Promise<{ count: number; voices: ElevenLabsVoice[] }> {
+  const res = await apiFetch('/api/admin/elevenlabs-voices')
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 // ── Books ─────────────────────────────────────────────────────────────────────
 
 export interface BookUpsertPayload {
