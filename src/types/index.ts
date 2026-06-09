@@ -74,7 +74,7 @@ export interface PipelineResult {
   status:          'done' | 'partial' | 'failed'
   generated_at:    string
   processing_time: string
-  steps: Record<string, 'done' | 'failed' | 'partial' | 'skipped' | 'running'>
+  steps: Record<string, 'done' | 'failed' | 'partial' | 'skipped' | 'running' | 'pending'>
   metadata: {
     title?:         string
     author?:        string
@@ -111,7 +111,7 @@ export interface VideoAsset {
 export interface PipelineJob {
   id:          string
   book_id:     string
-  status:      'queued' | 'running' | 'done' | 'partial' | 'failed'
+  status:      'queued' | 'running' | 'done' | 'partial' | 'failed' | 'cancelled'
   input?:      Partial<PipelineReq>
   result?:     PipelineResult | string   // may arrive as a JSON string on legacy rows
   error_msg?:  string
