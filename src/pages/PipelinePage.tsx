@@ -241,9 +241,9 @@ export default function PipelinePage() {
                     </button>
                   </div>
                 )}
-                {(selected.status === 'failed' || selected.status === 'partial') && (() => {
+                {(selected.status === 'failed' || selected.status === 'partial' || selected.status === 'cancelled') && (() => {
                   const failedSteps = r?.steps
-                    ? Object.entries(r.steps).filter(([, s]) => s === 'failed').map(([k]) => k)
+                    ? Object.entries(r.steps).filter(([, s]) => s === 'failed' || s === 'running' || s === 'pending').map(([k]) => k)
                     : []
                   const tipText = failedSteps.length
                     ? `Will retry: ${failedSteps.join(', ')}`

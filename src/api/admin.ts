@@ -174,6 +174,12 @@ export async function cancelJob(jobId: string): Promise<{ ok: boolean; message: 
   return res.json()
 }
 
+export async function deleteJob(jobId: string): Promise<{ ok: boolean; job_id: string; message: string }> {
+  const res = await apiFetch(`/api/admin/jobs/${jobId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 // ── Catalog inspector ────────────────────────────────────────────────────────
 
 export async function getCatalogTables(): Promise<CatalogTablesResponse> {

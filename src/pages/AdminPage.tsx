@@ -4,7 +4,7 @@ import {
   getConfig, setConfig, getMetrics, getAdminJobs, retryJob, rerunSteps, getCosts,
   getOpenRouterModels,
   getCatalogTables, getCatalog,
-  upsertBook, startIngest, getIngestStatus, runPipelineV2, cancelJob,
+  upsertBook, startIngest, getIngestStatus, runPipelineV2, cancelJob, deleteJob,
 } from '../api/admin'
 import type { AdminMetrics, PipelineJob, AdminCosts, CatalogTableMeta } from '../types'
 import StatusBadge from '../components/StatusBadge'
@@ -112,34 +112,43 @@ const PROVIDER_GROUPS: Array<{
   {
     title: 'Text-to-Speech',
     rows: [
-      { key: 'TTS_PROVIDER_EN', label: 'Provider (EN)', options: ['deepgram', 'elevenlabs', 'cartesia'] },
+      // ── English ─────────────────────────────────────────────────────────────
+      { key: 'TTS_PROVIDER_EN', label: 'Provider (EN)', options: ['deepgram', 'elevenlabs', 'cartesia', 'openrouter', 'gemini'] },
       { key: 'TTS_VOICE_EN',    label: 'Voice (EN)',    options: ['aura-asteria-en', 'aura-arcas-en', 'aura-luna-en'] },
-      // Arabic: Deepgram Aura voices are English-only and cannot pronounce Arabic text.
-      // Use elevenlabs (eleven_multilingual_v2 model supports Arabic natively) or
-      // cartesia (set TTS_VOICE_AR to a real Arabic voice UUID from play.cartesia.ai).
-      { key: 'TTS_PROVIDER_AR', label: 'Provider (AR) — ⚠️ Deepgram is English-only', options: ['cartesia', 'gemini', 'elevenlabs'] },
+      // ── Arabic ──────────────────────────────────────────────────────────────
+      // Deepgram Aura voices are English-only and cannot pronounce Arabic text.
+      { key: 'TTS_PROVIDER_AR', label: 'Provider (AR) — ⚠️ Deepgram is EN-only', options: ['cartesia', 'elevenlabs', 'openrouter', 'gemini'] },
       {
-        key: 'TTS_VOICE_AR', label: 'Voice ID (AR)',
+        key: 'TTS_VOICE_AR', label: 'Voice ID (AR) — provider-specific',
         options: [],
         type: 'text',
-        placeholder: 'Cartesia UUID  |  Gemini voice (Kore, Charon, …)  |  ElevenLabs voice ID',
+        placeholder: 'Cartesia UUID  |  ElevenLabs ID  |  Gemini/OpenRouter voice name',
       },
+      // ── Cartesia ────────────────────────────────────────────────────────────
       {
-        // Cartesia model snapshot — sonic-3.5-* supports 40+ languages incl. Arabic.
-        // sonic-2024-10-19 is English-only and will 400 on Arabic text.
-        // See https://docs.cartesia.ai/build-with-cartesia/models
         key: 'CARTESIA_MODEL', label: 'Cartesia model',
         options: [],
         type: 'text',
         placeholder: 'sonic-3.5-2026-05-04',
       },
+      // ── Gemini (native) ─────────────────────────────────────────────────────
       {
-        // Gemini TTS model via OpenRouter — Flash 2.5 supports Arabic natively.
-        // See https://openrouter.ai/models?modality=text-audio
         key: 'GEMINI_TTS_MODEL', label: 'Gemini TTS model',
+        options: ['google/gemini-2.5-flash-preview-tts', 'google/gemini-2.5-pro-preview-tts'],
+        type: 'combo',
+        placeholder: 'google/gemini-2.5-flash-preview-tts',
+      },
+      // ── OpenRouter ──────────────────────────────────────────────────────────
+      {
+        key: 'OPENROUTER_TTS_MODEL', label: 'OpenRouter TTS model',
         options: [],
         type: 'text',
-        placeholder: 'google/gemini-2.5-flash-preview-tts',
+        placeholder: 'google/gemini-2.5-flash-preview-tts  |  google/gemini-2.5-pro-preview-tts',
+      },
+      {
+        key: 'OPENROUTER_TTS_VOICE', label: 'OpenRouter / Gemini voice',
+        options: ['Kore', 'Charon', 'Puck', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr'],
+        placeholder: 'Kore',
       },
     ],
   },
@@ -882,6 +891,8 @@ function JobsTab() {
   const [loading,     setLoading]     = useState(true)
   const [retrying,    setRetrying]    = useState<string | null>(null)
   const [cancelling,  setCancelling]  = useState<string | null>(null)
+  const [deleting,    setDeleting]    = useState<string | null>(null)
+  const [confirmDel,  setConfirmDel]  = useState<string | null>(null)
   // rerunning: "jobId:step" or "jobId:__all__" while a rerun call is in-flight
   const [rerunning,   setRerunning]   = useState<string | null>(null)
   // Per-job step checkbox selections: jobId → Set of checked step names
@@ -913,6 +924,16 @@ function JobsTab() {
       await loadJobs()
     } catch { /* silent */ }
     finally { setCancelling(null) }
+  }
+
+  async function handleDelete(jobId: string) {
+    setDeleting(jobId)
+    try {
+      await deleteJob(jobId)
+      setConfirmDel(null)
+      await loadJobs()
+    } catch { /* silent */ }
+    finally { setDeleting(null) }
   }
 
   async function handleRerun(jobId: string, steps: string[]) {
@@ -1120,6 +1141,36 @@ function JobsTab() {
                             </svg>
                         }
                         Regen All
+                      </button>
+                    )}
+
+                    {/* Delete — confirm first */}
+                    {confirmDel === job.id ? (
+                      <div className="flex items-center gap-1">
+                        <span className="text-[10px] text-red-400">Sure?</span>
+                        <button
+                          onClick={() => handleDelete(job.id)}
+                          disabled={deleting === job.id}
+                          className="px-2 py-0.5 rounded bg-red-700 hover:bg-red-600 disabled:opacity-40 text-white text-[10px] font-medium transition-colors"
+                        >
+                          {deleting === job.id ? '…' : 'Yes'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDel(null)}
+                          className="px-2 py-0.5 rounded bg-gray-700 hover:bg-gray-600 text-gray-300 text-[10px] font-medium transition-colors"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDel(job.id)}
+                        title="Delete job permanently"
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-900/20 text-xs transition-colors"
+                      >
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
                       </button>
                     )}
                   </div>
