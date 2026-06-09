@@ -134,9 +134,14 @@ const PROVIDER_GROUPS: Array<{
       // ── Gemini (native) ─────────────────────────────────────────────────────
       {
         key: 'GEMINI_TTS_MODEL', label: 'Gemini TTS model',
-        options: ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'],
+        options: ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview'],
         type: 'combo',
         placeholder: 'gemini-2.5-flash-preview-tts',
+      },
+      {
+        key: 'GEMINI_TTS_VOICE', label: 'Gemini TTS voice',
+        options: ['Kore', 'Charon', 'Puck', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr'],
+        placeholder: 'Kore',
       },
       // ── OpenRouter ──────────────────────────────────────────────────────────
       {
