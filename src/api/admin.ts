@@ -180,6 +180,22 @@ export async function deleteJob(jobId: string): Promise<{ ok: boolean; job_id: s
   return res.json()
 }
 
+export async function previewTTS(payload: {
+  text: string
+  provider: string
+  model: string
+  voice: string
+  language: string
+}): Promise<{ ok: boolean; audio_base64: string; mime_type: string }> {
+  const res = await apiFetch('/api/admin/tts-preview', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 // ── Catalog inspector ────────────────────────────────────────────────────────
 
 export async function getCatalogTables(): Promise<CatalogTablesResponse> {

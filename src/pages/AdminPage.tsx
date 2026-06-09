@@ -5,6 +5,7 @@ import {
   getOpenRouterModels,
   getCatalogTables, getCatalog,
   upsertBook, startIngest, getIngestStatus, runPipelineV2, cancelJob, deleteJob,
+  previewTTS,
 } from '../api/admin'
 import type { AdminMetrics, PipelineJob, AdminCosts, CatalogTableMeta } from '../types'
 import StatusBadge from '../components/StatusBadge'
@@ -144,21 +145,20 @@ const PROVIDER_GROUPS: Array<{
         placeholder: 'Kore',
       },
       // ── OpenRouter ──────────────────────────────────────────────────────────
+      // Uses OpenRouter's /api/v1/audio/speech endpoint, which supports both
+      // OpenAI audio models AND Google Gemini TTS models, all with OpenAI voice
+      // names (alloy, echo, …).
       {
         key: 'OPENROUTER_TTS_MODEL', label: 'OpenRouter TTS model',
-        options: [
-          'google/gemini-3.1-flash-tts-preview',
-          'google/gemini-2.5-flash-preview-tts',
-          'openai/gpt-audio',
-          'openai/gpt-audio-mini',
-        ],
+        options: ['openai/gpt-audio', 'openai/gpt-audio-mini', 'google/gemini-2.5-flash-tts-preview', 'google/gemini-3.1-flash-tts-preview'],
         type: 'combo',
-        placeholder: 'google/gemini-3.1-flash-tts-preview',
+        placeholder: 'openai/gpt-audio-mini',
       },
       {
-        key: 'OPENROUTER_TTS_VOICE', label: 'OpenRouter TTS voice',
-        options: ['Kore', 'Charon', 'Puck', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr', 'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'],
-        placeholder: 'Kore',
+        // OpenRouter /audio/speech uses OpenAI voice names for all models.
+        key: 'OPENROUTER_TTS_VOICE', label: 'OpenRouter TTS voice (OpenAI voice names)',
+        options: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'coral', 'verse', 'ballad', 'ash', 'sage', 'marin', 'cedar'],
+        placeholder: 'alloy',
       },
     ],
   },
@@ -655,6 +655,74 @@ function SearchableSelect({
 }
 
 
+// ── TTS model / language reference ──────────────────────────────────────────
+// Shown in the Text-to-Speech settings section so admins pick valid combos.
+const TTS_MODEL_REFERENCE: Array<{
+  provider: string
+  model: string
+  voices: string
+  langs: string[]
+}> = [
+  { provider: 'gemini',     model: 'gemini-2.5-flash-preview-tts',        voices: 'Kore, Charon, Puck, Fenrir, Aoede, Leda, Orus, Zephyr', langs: ['en', 'ar'] },
+  { provider: 'gemini',     model: 'gemini-3.1-flash-tts-preview',        voices: 'Kore, Charon, Puck, Fenrir, Aoede, Leda, Orus, Zephyr', langs: ['en', 'ar'] },
+  { provider: 'openrouter', model: 'openai/gpt-audio',                    voices: 'alloy, echo, nova, shimmer, coral, sage … (OpenAI)',  langs: ['en', 'ar'] },
+  { provider: 'openrouter', model: 'openai/gpt-audio-mini',               voices: 'alloy, echo, nova, shimmer, coral, sage … (OpenAI)',  langs: ['en', 'ar'] },
+  { provider: 'openrouter', model: 'google/gemini-2.5-flash-tts-preview', voices: 'alloy, echo, nova … (OpenAI voice names)',           langs: ['en', 'ar'] },
+  { provider: 'openrouter', model: 'google/gemini-3.1-flash-tts-preview', voices: 'alloy, echo, nova … (OpenAI voice names)',           langs: ['en', 'ar'] },
+  { provider: 'cartesia',   model: 'sonic-3.5-2026-05-04',                voices: 'Cartesia voice UUID',                                langs: ['en', 'ar'] },
+  { provider: 'elevenlabs', model: 'eleven_multilingual_v2',              voices: 'ElevenLabs voice ID',                                langs: ['en', 'ar'] },
+  { provider: 'deepgram',   model: 'aura-asteria-en',                     voices: 'aura-asteria-en, aura-arcas-en, aura-luna-en',       langs: ['en'] },
+]
+
+function TtsReferenceTable() {
+  return (
+    <div className="px-5 py-4 border-b border-gray-800 bg-gray-950/40">
+      <p className="text-xs font-medium text-gray-400 mb-2">
+        Supported TTS models & languages — pick a matching provider + model + voice
+      </p>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-gray-500 text-left">
+              <th className="py-1.5 pr-4 font-medium">Provider</th>
+              <th className="py-1.5 pr-4 font-medium">Model</th>
+              <th className="py-1.5 pr-4 font-medium">Voices</th>
+              <th className="py-1.5 font-medium">Languages</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-800/60">
+            {TTS_MODEL_REFERENCE.map(r => (
+              <tr key={`${r.provider}-${r.model}`} className="text-gray-300">
+                <td className="py-1.5 pr-4">
+                  <span className="px-1.5 py-0.5 rounded bg-gray-800 text-gray-300 font-mono">{r.provider}</span>
+                </td>
+                <td className="py-1.5 pr-4 font-mono text-gray-400">{r.model}</td>
+                <td className="py-1.5 pr-4 text-gray-500">{r.voices}</td>
+                <td className="py-1.5">
+                  <span className="flex gap-1">
+                    {r.langs.map(l => (
+                      <span key={l} className={`px-1.5 py-0.5 rounded text-[10px] font-mono ${
+                        l === 'ar' ? 'bg-emerald-900/40 text-emerald-300' : 'bg-indigo-900/40 text-indigo-300'
+                      }`}>{l.toUpperCase()}</span>
+                    ))}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[11px] text-amber-400/80 mt-2">
+        ℹ️ OpenRouter routes both OpenAI and Google Gemini TTS models via its
+        <code className="text-amber-300"> /audio/speech</code> endpoint — always use OpenAI voice
+        names (alloy, echo…) there. The native <code className="text-amber-300">gemini</code> provider
+        uses Gemini voice names (Kore…). Deepgram is English-only.
+      </p>
+    </div>
+  )
+}
+
+
 // ── Providers tab ─────────────────────────────────────────────────────────────
 
 function ProvidersTab() {
@@ -783,6 +851,7 @@ function ProvidersTab() {
           <div className="px-5 py-3 border-b border-gray-800">
             <h2 className="text-sm font-semibold text-gray-200">{group.title}</h2>
           </div>
+          {group.title === 'Text-to-Speech' && <TtsReferenceTable />}
           <div className="divide-y divide-gray-800">
             {group.rows.map(row => {
               // Resolve the first flat string as fallback default
@@ -2207,7 +2276,7 @@ function PromptsTab() {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = 'providers' | 'prompts' | 'books' | 'jobs' | 'costs' | 'catalog'
+type Tab = 'providers' | 'prompts' | 'books' | 'jobs' | 'costs' | 'catalog' | 'voices'
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'providers', label: 'Providers' },
@@ -2216,6 +2285,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'jobs',      label: 'Jobs'      },
   { id: 'costs',     label: 'Costs'     },
   { id: 'catalog',   label: 'Catalog'   },
+  { id: 'voices',    label: 'Voices'    },
 ]
 
 export default function AdminPage() {
@@ -2251,6 +2321,330 @@ export default function AdminPage() {
       {tab === 'jobs'      && <JobsTab />}
       {tab === 'costs'     && <CostsTab />}
       {tab === 'catalog'   && <CatalogTab />}
+      {tab === 'voices'    && <VoicesTab />}
+    </div>
+  )
+}
+
+
+// ── Voices tab ────────────────────────────────────────────────────────────────
+
+const VOICE_PRESETS: Record<string, { label: string; text: string }> = {
+  en: { label: 'English', text: 'Hello, this is a voice preview for English text-to-speech.' },
+  ar: { label: 'Arabic',  text: 'مرحباً، هذا معاينة صوتية للنص العربي.' },
+}
+
+// Per-model voice lists with language support.
+// Format: model → { voices: [{name, langs: ['en'|'ar'|'all']}], defaultVoice }
+type VoiceInfo = { name: string; langs: string[] }
+type ModelVoices = { voices: VoiceInfo[]; defaultVoice: string }
+
+const PROVIDER_MODEL_VOICES: Record<string, Record<string, ModelVoices>> = {
+  gemini: {
+    'gemini-2.5-flash-preview-tts': {
+      voices: [
+        { name: 'Kore',    langs: ['all'] },
+        { name: 'Charon',  langs: ['all'] },
+        { name: 'Puck',    langs: ['all'] },
+        { name: 'Fenrir',  langs: ['all'] },
+        { name: 'Aoede',   langs: ['all'] },
+        { name: 'Leda',    langs: ['all'] },
+        { name: 'Orus',    langs: ['all'] },
+        { name: 'Zephyr',  langs: ['all'] },
+      ],
+      defaultVoice: 'Kore',
+    },
+    'gemini-3.1-flash-tts-preview': {
+      voices: [
+        { name: 'Kore',    langs: ['all'] },
+        { name: 'Charon',  langs: ['all'] },
+        { name: 'Puck',    langs: ['all'] },
+        { name: 'Fenrir',  langs: ['all'] },
+        { name: 'Aoede',   langs: ['all'] },
+        { name: 'Leda',    langs: ['all'] },
+        { name: 'Orus',    langs: ['all'] },
+        { name: 'Zephyr',  langs: ['all'] },
+      ],
+      defaultVoice: 'Kore',
+    },
+  },
+  openrouter: {
+    'openai/gpt-audio': {
+      voices: [
+        { name: 'alloy',   langs: ['all'] },
+        { name: 'echo',    langs: ['all'] },
+        { name: 'fable',   langs: ['all'] },
+        { name: 'onyx',    langs: ['all'] },
+        { name: 'nova',    langs: ['all'] },
+        { name: 'shimmer', langs: ['all'] },
+        { name: 'coral',   langs: ['all'] },
+        { name: 'verse',   langs: ['all'] },
+        { name: 'ballad',  langs: ['all'] },
+        { name: 'ash',     langs: ['all'] },
+        { name: 'sage',    langs: ['all'] },
+        { name: 'marin',   langs: ['all'] },
+        { name: 'cedar',   langs: ['all'] },
+      ],
+      defaultVoice: 'alloy',
+    },
+    'openai/gpt-audio-mini': {
+      voices: [
+        { name: 'alloy',   langs: ['all'] },
+        { name: 'echo',    langs: ['all'] },
+        { name: 'fable',   langs: ['all'] },
+        { name: 'onyx',    langs: ['all'] },
+        { name: 'nova',    langs: ['all'] },
+        { name: 'shimmer', langs: ['all'] },
+        { name: 'coral',   langs: ['all'] },
+        { name: 'verse',   langs: ['all'] },
+        { name: 'ballad',  langs: ['all'] },
+        { name: 'ash',     langs: ['all'] },
+        { name: 'sage',    langs: ['all'] },
+        { name: 'marin',   langs: ['all'] },
+        { name: 'cedar',   langs: ['all'] },
+      ],
+      defaultVoice: 'alloy',
+    },
+  },
+  cartesia: {
+    'sonic-3.5-2026-05-04': {
+      voices: [
+        { name: 'sonic-3.5-2026-05-04', langs: ['all'] },
+      ],
+      defaultVoice: 'sonic-3.5-2026-05-04',
+    },
+  },
+  elevenlabs: {
+    'eleven_multilingual_v2': {
+      voices: [
+        { name: 'eleven_multilingual_v2', langs: ['all'] },
+      ],
+      defaultVoice: 'eleven_multilingual_v2',
+    },
+  },
+  deepgram: {
+    'aura-asteria-en': {
+      voices: [
+        { name: 'aura-asteria-en', langs: ['en'] },
+        { name: 'aura-arcas-en',   langs: ['en'] },
+        { name: 'aura-luna-en',    langs: ['en'] },
+      ],
+      defaultVoice: 'aura-asteria-en',
+    },
+  },
+}
+
+const PROVIDER_MODELS: Record<string, string[]> = {
+  gemini:     ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview'],
+  openrouter: ['openai/gpt-audio', 'openai/gpt-audio-mini'],
+  cartesia:   ['sonic-3.5-2026-05-04'],
+  elevenlabs: ['eleven_multilingual_v2'],
+  deepgram:   ['aura-asteria-en'],
+}
+
+function VoicesTab() {
+  const [provider, setProvider]   = useState('gemini')
+  const [model, setModel]         = useState('')
+  const [voice, setVoice]         = useState('')
+  const [language, setLanguage]   = useState('en')
+  const [previewText, setPreviewText] = useState(VOICE_PRESETS.en.text)
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+  const [audioUrl, setAudioUrl]   = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  // When the provider changes, pick its first model.
+  useEffect(() => {
+    const models = PROVIDER_MODELS[provider] || []
+    setModel(models[0] || '')
+  }, [provider])
+
+  // When provider/model/language changes, pick a valid voice for that combo.
+  // Prefer the model's defaultVoice if it supports the current language.
+  useEffect(() => {
+    const mv = PROVIDER_MODEL_VOICES[provider]?.[model]
+    const valid = (mv?.voices || []).filter(
+      v => v.langs.includes('all') || v.langs.includes(language),
+    )
+    const def = mv?.defaultVoice
+    const defValid = def && valid.some(v => v.name === def)
+    setVoice(defValid ? def! : (valid[0]?.name || ''))
+  }, [provider, model, language])
+
+  useEffect(() => {
+    setPreviewText(VOICE_PRESETS[language]?.text || VOICE_PRESETS.en.text)
+  }, [language])
+
+  async function handlePreview() {
+    setLoading(true)
+    setError(null)
+    setAudioUrl(null)
+    try {
+      const result = await previewTTS({
+        text: previewText,
+        provider,
+        model,
+        voice,
+        language,
+      })
+      const url = `data:${result.mime_type};base64,${result.audio_base64}`
+      setAudioUrl(url)
+      setTimeout(() => {
+        if (audioRef.current) {
+          audioRef.current.play().catch(() => {})
+        }
+      }, 100)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const availableModels = PROVIDER_MODELS[provider] || []
+  const modelVoices     = PROVIDER_MODEL_VOICES[provider]?.[model]
+  const availableVoices = (modelVoices?.voices || []).filter(
+    v => v.langs.includes('all') || v.langs.includes(language),
+  )
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-gray-200 mb-4">TTS Voice Preview</h2>
+        <p className="text-xs text-gray-500 mb-4">
+          Test voices before running a pipeline job. Each provider uses different voices and models.
+        </p>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Provider</label>
+            <div className="flex gap-2 flex-wrap">
+              {['gemini', 'openrouter', 'cartesia', 'elevenlabs', 'deepgram'].map(p => (
+                <button
+                  key={p}
+                  onClick={() => setProvider(p)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    provider === p
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:text-gray-200 border border-gray-700'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Language</label>
+            <div className="flex gap-2">
+              {(['en', 'ar'] as const).map(lang => (
+                <button
+                  key={lang}
+                  onClick={() => setLanguage(lang)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                    language === lang
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:text-gray-200 border border-gray-700'
+                  }`}
+                >
+                  {lang === 'en' ? 'English' : 'Arabic'}
+                </button>
+              ))}
+            </div>
+            {provider === 'deepgram' && language === 'ar' && (
+              <p className="text-xs text-red-400 mt-1">⚠️ Deepgram is English-only</p>
+            )}
+          </div>
+
+          {availableModels.length > 0 && (
+            <div>
+              <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Model</label>
+              <select
+                value={model}
+                onChange={e => setModel(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 w-full"
+              >
+                {availableModels.map(m => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          {availableVoices.length > 0 ? (
+            <div>
+              <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Voice</label>
+              <div className="flex gap-2 flex-wrap">
+                {availableVoices.map(v => {
+                  const isAll = v.langs.includes('all')
+                  const tag = isAll ? 'ALL' : v.langs.map(l => l.toUpperCase()).join('/')
+                  return (
+                    <button
+                      key={v.name}
+                      onClick={() => setVoice(v.name)}
+                      title={isAll ? 'Supports all languages' : `Languages: ${tag}`}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        voice === v.name
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-gray-800 text-gray-400 hover:text-gray-200 border border-gray-700'
+                      }`}
+                    >
+                      {v.name}
+                      <span className={`text-[9px] px-1 py-0.5 rounded font-mono ${
+                        voice === v.name ? 'bg-white/20 text-white' : 'bg-gray-700 text-gray-400'
+                      }`}>
+                        {tag}
+                      </span>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-red-400">No voices available for this provider + language combination.</p>
+          )}
+
+          <div>
+            <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Preview text</label>
+            <textarea
+              value={previewText}
+              onChange={e => setPreviewText(e.target.value)}
+              rows={3}
+              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 w-full resize-none"
+            />
+          </div>
+
+          <button
+            onClick={handlePreview}
+            disabled={loading || !voice}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors"
+          >
+            {loading ? (
+              <span className="inline-block w-4 h-4 border border-white/40 border-t-white rounded-full animate-spin" />
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            )}
+            {loading ? 'Generating…' : 'Preview Voice'}
+          </button>
+
+          {error && (
+            <div className="bg-red-900/20 border border-red-800 rounded-lg p-3">
+              <p className="text-xs text-red-400 font-medium">Preview failed</p>
+              <p className="text-xs text-red-300 mt-1">{error}</p>
+            </div>
+          )}
+
+          {audioUrl && (
+            <div className="bg-gray-800 border border-gray-700 rounded-lg p-3">
+              <audio ref={audioRef} controls src={audioUrl} className="w-full" />
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
