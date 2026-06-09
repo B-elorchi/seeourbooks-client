@@ -134,20 +134,25 @@ const PROVIDER_GROUPS: Array<{
       // ── Gemini (native) ─────────────────────────────────────────────────────
       {
         key: 'GEMINI_TTS_MODEL', label: 'Gemini TTS model',
-        options: ['google/gemini-2.5-flash-preview-tts', 'google/gemini-2.5-pro-preview-tts'],
+        options: ['gemini-2.5-flash-preview-tts', 'gemini-2.5-pro-preview-tts'],
         type: 'combo',
-        placeholder: 'google/gemini-2.5-flash-preview-tts',
+        placeholder: 'gemini-2.5-flash-preview-tts',
       },
       // ── OpenRouter ──────────────────────────────────────────────────────────
       {
         key: 'OPENROUTER_TTS_MODEL', label: 'OpenRouter TTS model',
-        options: [],
-        type: 'text',
-        placeholder: 'google/gemini-2.5-flash-preview-tts  |  google/gemini-2.5-pro-preview-tts',
+        options: [
+          'google/gemini-3.1-flash-tts-preview',
+          'google/gemini-2.5-flash-preview-tts',
+          'openai/gpt-audio',
+          'openai/gpt-audio-mini',
+        ],
+        type: 'combo',
+        placeholder: 'google/gemini-3.1-flash-tts-preview',
       },
       {
-        key: 'OPENROUTER_TTS_VOICE', label: 'OpenRouter / Gemini voice',
-        options: ['Kore', 'Charon', 'Puck', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr'],
+        key: 'OPENROUTER_TTS_VOICE', label: 'OpenRouter TTS voice',
+        options: ['Kore', 'Charon', 'Puck', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr', 'alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'],
         placeholder: 'Kore',
       },
     ],
