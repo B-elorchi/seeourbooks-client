@@ -16,6 +16,7 @@ export default function EpubReader({ url, onClose }: { url: string; onClose: () 
   const renditionRef = useRef<any>(null)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const bookRef = useRef<any>(null)
+  const roRef   = useRef<ResizeObserver | null>(null)
 
   const [toc, setToc]         = useState<TocItem[]>([])
   const [showToc, setShowToc] = useState(true)
@@ -24,50 +25,116 @@ export default function EpubReader({ url, onClose }: { url: string; onClose: () 
   const [chapterLabel, setChapterLabel] = useState('')
 
   useEffect(() => {
-    if (!viewerRef.current) return
+    const el = viewerRef.current
+    if (!el) return
     let cancelled = false
+    let safety: ReturnType<typeof setTimeout> | undefined
 
     setLoading(true)
     setError(null)
 
-    let book: ReturnType<typeof ePub>
-    try {
-      book = ePub(url)
-      bookRef.current = book
-      const rendition = book.renderTo(viewerRef.current, {
-        width: '100%',
-        height: '100%',
-        flow: 'paginated',
-        spread: 'auto',
-      })
-      renditionRef.current = rendition
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let book: any
 
-      rendition.display().then(() => {
-        if (!cancelled) setLoading(false)
-      }).catch((e: unknown) => {
+    function start() {
+      if (cancelled || !el) return
+      // epubjs needs real pixel dimensions; '100%' can compute to 0 inside a
+      // flex container that hasn't been laid out yet, which makes display() hang.
+      const w = el.clientWidth
+      const h = el.clientHeight
+      if (w === 0 || h === 0) {
+        // Layout not ready yet — try again next frame.
+        requestAnimationFrame(start)
+        return
+      }
+
+      try {
+        book = ePub(url)
+        bookRef.current = book
+
+        // scrolled-doc is far more reliable than paginated for arbitrary EPUBs —
+        // paginated mode often renders a blank first view depending on the
+        // source's spine/structure. Continuous scroll always paints content.
+        const rendition = book.renderTo(el, {
+          width: w,
+          height: h,
+          flow: 'scrolled-doc',
+          manager: 'continuous',
+          allowScriptedContent: true,
+        })
+        renditionRef.current = rendition
+
+        // Make sure injected content is readable regardless of the source's CSS.
+        rendition.themes.default({
+          body: {
+            'padding': '1.5em 2em',
+            'max-width': '46em',
+            'margin': '0 auto',
+            'color': '#1a1a1a',
+            'background': '#ffffff',
+            'line-height': '1.7',
+          },
+          'img': { 'max-width': '100%' },
+          'a': { 'color': '#2563eb' },
+        })
+
+        // 'rendered' is the reliable signal that a section painted — clear the
+        // loading overlay here (display()'s promise can stay pending in 0.3.x).
+        rendition.on('rendered', () => {
+          if (!cancelled) setLoading(false)
+          if (safety) clearTimeout(safety)
+        })
+
+        rendition.display().then(() => {
+          if (!cancelled) setLoading(false)
+        }).catch((e: unknown) => {
+          // eslint-disable-next-line no-console
+          console.error('epubjs display() failed:', e)
+          if (!cancelled) {
+            setError(e instanceof Error ? e.message : 'Failed to render EPUB')
+            setLoading(false)
+          }
+        })
+
+        book.loaded.navigation.then((nav: { toc: TocItem[] }) => {
+          if (!cancelled) setToc(nav.toc ?? [])
+        })
+
+        rendition.on('relocated', (location: { start: { href: string } }) => {
+          const item = book.navigation?.get(location.start.href)
+          if (item && !cancelled) setChapterLabel(item.label?.trim() ?? '')
+        })
+
+        // Re-paginate when the viewer box changes size (window resize or the
+        // ToC sidebar being toggled), since we sized the rendition in pixels.
+        const ro = new ResizeObserver(() => {
+          if (cancelled || !el) return
+          const nw = el.clientWidth, nh = el.clientHeight
+          if (nw > 0 && nh > 0) {
+            try { rendition.resize(nw, nh) } catch { /* ignore */ }
+          }
+        })
+        ro.observe(el)
+        roRef.current = ro
+
+        // Safety net: stop showing the spinner after 6s even if no event fires,
+        // so a quirk never leaves the user staring at a blank loader forever.
+        safety = setTimeout(() => { if (!cancelled) setLoading(false) }, 6000)
+      } catch (e) {
         if (!cancelled) {
-          setError(e instanceof Error ? e.message : 'Failed to render EPUB')
+          setError(e instanceof Error ? e.message : 'Could not open EPUB')
           setLoading(false)
         }
-      })
-
-      // Load table of contents
-      book.loaded.navigation.then((nav: { toc: TocItem[] }) => {
-        if (!cancelled) setToc(nav.toc ?? [])
-      })
-
-      // Track current chapter label
-      rendition.on('relocated', (location: { start: { href: string } }) => {
-        const item = book.navigation?.get(location.start.href)
-        if (item && !cancelled) setChapterLabel(item.label?.trim() ?? '')
-      })
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not open EPUB')
-      setLoading(false)
+      }
     }
+
+    // Defer to next frame so the modal/flex layout is measured first.
+    requestAnimationFrame(start)
 
     return () => {
       cancelled = true
+      if (safety) clearTimeout(safety)
+      try { roRef.current?.disconnect() } catch { /* ignore */ }
       try { renditionRef.current?.destroy() } catch { /* ignore */ }
       try { bookRef.current?.destroy() } catch { /* ignore */ }
     }

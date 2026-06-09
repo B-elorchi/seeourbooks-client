@@ -1,6 +1,6 @@
 import { useState, lazy, Suspense } from 'react'
 import { usePipelineJobs, useJobStatus, useInvalidatePipeline } from '../hooks/usePipeline'
-import { retryJob, rerunSteps } from '../api/admin'
+import { retryJob, rerunSteps, cancelJob } from '../api/admin'
 import type { PipelineResult } from '../types'
 import StatusBadge from '../components/StatusBadge'
 
@@ -33,6 +33,10 @@ export default function PipelinePage() {
   const [checkedSteps, setCheckedSteps] = useState<Set<string>>(new Set())
   const [regenRunning, setRegenRunning] = useState(false)
   const [regenMsg,     setRegenMsg]     = useState<string | null>(null)
+
+  // Cancel job
+  const [cancelling, setCancelling] = useState(false)
+  const [cancelMsg,  setCancelMsg]  = useState<string | null>(null)
 
   // EPUB preview modal
   const [epubPreview, setEpubPreview] = useState<string | null>(null)
@@ -81,6 +85,21 @@ export default function PipelinePage() {
       setRegenMsg(`Error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setRegenRunning(false)
+    }
+  }
+
+  async function handleCancel(jobId: string) {
+    setCancelling(true)
+    setCancelMsg(null)
+    try {
+      await cancelJob(jobId)
+      setCancelMsg('Cancelled ✓')
+      setTimeout(() => setCancelMsg(null), 3000)
+      invalidateAll()
+    } catch (err) {
+      setCancelMsg(`Error: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setCancelling(false)
     }
   }
 
@@ -197,6 +216,30 @@ export default function PipelinePage() {
                   <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400 border border-yellow-800">
                     {selected.retry_count}/{selected.max_retries} retries
                   </span>
+                )}
+                {(selected.status === 'running' || selected.status === 'queued') && (
+                  <div className="flex items-center gap-2">
+                    {cancelMsg && (
+                      <span className={`text-xs ${cancelMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
+                        {cancelMsg}
+                      </span>
+                    )}
+                    <button
+                      onClick={() => handleCancel(selected.id)}
+                      disabled={cancelling}
+                      title="Request cancellation — job will stop at the next step boundary"
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+                    >
+                      {cancelling ? (
+                        <span className="inline-block w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      )}
+                      {cancelling ? 'Cancelling…' : 'Cancel'}
+                    </button>
+                  </div>
                 )}
                 {(selected.status === 'failed' || selected.status === 'partial') && (() => {
                   const failedSteps = r?.steps
