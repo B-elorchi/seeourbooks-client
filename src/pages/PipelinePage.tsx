@@ -122,8 +122,7 @@ export default function PipelinePage() {
   })()
 
   const summaryEntry = r?.summaries ? Object.values(r.summaries)[0] : null
-  const audioEntry   = r?.audio     ? Object.entries(r.audio)[0]    : null
-  const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.epub ?? null)
+const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.epub ?? null)
   const videoEntry   = r?.video     ? Object.entries(r.video)[0]     : null
   const videoUrl     = videoEntry?.[1]?.url ?? r?.files?.video ?? null
 
