@@ -86,6 +86,15 @@ export interface PipelineResult {
     cover_alt_text?: string
   }
   quick_summary:  string
+  summary_qa?:    {
+    score:      number
+    passed:     boolean
+    threshold?: number
+    covered?:   boolean
+    missing?:   string[]
+    reason?:    string
+    model?:     string
+  } | null
   summaries:      Record<string, SummaryAsset>    // e.g. "10min_en"
   audio:          Record<string, AudioAsset>       // e.g. "full_en"
   mindmap?:       { url: string; data?: unknown }

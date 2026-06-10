@@ -85,6 +85,66 @@ const PROVIDER_GROUPS: Array<{
           g('🔀 OpenRouter → Anthropic',  OR_CLAUDE),
         ],
       },
+      // ── Length controls (words) ───────────────────────────────────────────
+      {
+        key: 'CHUNK_WORDS_EN', label: 'Chunk size — words per chunk (EN)',
+        options: [], type: 'text', placeholder: '1500',
+      },
+      {
+        key: 'CHUNK_WORDS_AR', label: 'Chunk size — words per chunk (AR)',
+        options: [], type: 'text', placeholder: '1500',
+      },
+      {
+        key: 'SUMMARY_MAX_WORDS_EN', label: 'Max summary words (EN) — 0 = use length preset',
+        options: [], type: 'text', placeholder: '0 = preset (3/5/10/15 min)',
+      },
+      {
+        key: 'SUMMARY_MAX_WORDS_AR', label: 'Max summary words (AR) — 0 = use length preset',
+        options: [], type: 'text', placeholder: '0 = preset (3/5/10/15 min)',
+      },
+      {
+        key: 'CHAPTER_SUMMARY_MAX_WORDS', label: 'Max words per chapter summary — 0 = default',
+        options: [], type: 'text', placeholder: '0 = default (3-5 sentences)',
+      },
+      // ── Summary quality check (gates audio) ───────────────────────────────
+      {
+        key: 'SUMMARY_QA_ENABLED', label: 'Summary coverage check — gate audio',
+        options: ['true', 'false'],
+      },
+      {
+        key: 'SUMMARY_QA_MODEL', label: 'Coverage check model (scores 0-100)',
+        options: [
+          g('🔀 OpenRouter → DeepSeek', ['deepseek/deepseek-chat', 'deepseek/deepseek-r1', 'deepseek/deepseek-chat-v3.1']),
+          g('🔀 OpenRouter → OpenAI',   OR_GPT),
+          g('🟣 Anthropic — Native API', CLAUDE_MODELS),
+        ],
+        type: 'combo',
+        placeholder: 'deepseek/deepseek-chat',
+      },
+      {
+        key: 'SUMMARY_QA_THRESHOLD', label: 'Min coverage score to allow audio (%)',
+        options: [], type: 'text', placeholder: '70',
+      },
+      // ── Cross-language translation ────────────────────────────────────────
+      {
+        key: 'TRANSLATE_SUMMARY_ENABLED', label: 'Translate summary to other language (EN↔AR)',
+        options: ['true', 'false'],
+      },
+      {
+        key: 'TRANSLATE_MODEL', label: 'Translation model',
+        options: [
+          g('🟣 Anthropic — Native API', CLAUDE_MODELS),
+          g('🔀 OpenRouter → Anthropic', OR_CLAUDE),
+          g('🔀 OpenRouter → OpenAI',    OR_GPT),
+          g('🔀 OpenRouter → DeepSeek',  ['deepseek/deepseek-chat']),
+        ],
+        type: 'combo',
+        placeholder: 'Pick a translation model…',
+      },
+      {
+        key: 'TARGET_LANG_AUDIO_ENABLED', label: 'Also generate audio in the translated language',
+        options: ['false', 'true'],
+      },
     ],
   },
   {
@@ -116,7 +176,14 @@ const PROVIDER_GROUPS: Array<{
     rows: [
       // ── English ─────────────────────────────────────────────────────────────
       { key: 'TTS_PROVIDER_EN', label: 'Provider (EN)', options: ['deepgram', 'elevenlabs', 'cartesia', 'openrouter', 'gemini'] },
-      { key: 'TTS_VOICE_EN',    label: 'Voice (EN)',    options: ['aura-asteria-en', 'aura-arcas-en', 'aura-luna-en'] },
+      {
+        key: 'TTS_VOICE_EN', label: 'Voice ID (EN) — provider-specific',
+        // Combo: pick a Deepgram voice or type any provider voice id
+        // (Cartesia UUID, ElevenLabs id, Gemini/OpenRouter voice name).
+        options: ['aura-asteria-en', 'aura-arcas-en', 'aura-luna-en'],
+        type: 'combo',
+        placeholder: 'Deepgram voice  |  Cartesia UUID  |  ElevenLabs id  |  OpenAI/Gemini voice',
+      },
       // ── Arabic ──────────────────────────────────────────────────────────────
       // Deepgram Aura voices are English-only and cannot pronounce Arabic text.
       { key: 'TTS_PROVIDER_AR', label: 'Provider (AR) — ⚠️ Deepgram is EN-only', options: ['cartesia', 'elevenlabs', 'openrouter', 'gemini'] },
@@ -145,6 +212,16 @@ const PROVIDER_GROUPS: Array<{
         options: [],
         type: 'text',
         placeholder: 'sonic-3.5-2026-05-04',
+      },
+      {
+        key: 'CARTESIA_VOICE_EN', label: 'Cartesia voice ID (EN)',
+        options: [], type: 'text',
+        placeholder: 'a0e99841-438c-4a64-b679-ae501e7d6091',
+      },
+      {
+        key: 'CARTESIA_VOICE_AR', label: 'Cartesia voice ID (AR)',
+        options: [], type: 'text',
+        placeholder: 'voice UUID from play.cartesia.ai/voices',
       },
       // ── Gemini (native) ─────────────────────────────────────────────────────
       {

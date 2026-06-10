@@ -384,6 +384,41 @@ export default function PipelinePage() {
               )
             })()}
 
+            {/* Summary coverage QA */}
+            {r?.summary_qa && typeof r.summary_qa.score === 'number' && r.summary_qa.score >= 0 && (() => {
+              const qa = r.summary_qa!
+              const thr = qa.threshold ?? 70
+              const ok = qa.passed
+              return (
+                <div className={`rounded-xl p-4 border ${ok ? 'bg-emerald-950/30 border-emerald-900/50' : 'bg-red-950/30 border-red-900/50'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Summary Coverage Check</p>
+                    {qa.model && <span className="text-[11px] text-gray-500 font-mono">{qa.model}</span>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`text-3xl font-bold ${ok ? 'text-emerald-400' : 'text-red-400'}`}>{qa.score}%</span>
+                    <div className="flex-1">
+                      <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                        <div className={`h-full ${ok ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(100, qa.score))}%` }} />
+                      </div>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {ok ? `Passed — ≥ ${thr}% required` : `Below threshold (${thr}%) — audio blocked until summary improves`}
+                      </p>
+                    </div>
+                  </div>
+                  {qa.reason && <p className="text-xs text-gray-400 mt-2">{qa.reason}</p>}
+                  {qa.missing && qa.missing.length > 0 && (
+                    <div className="mt-2">
+                      <p className="text-[11px] uppercase tracking-wide text-gray-500 mb-1">Missing points</p>
+                      <ul className="list-disc list-inside text-xs text-gray-400 space-y-0.5">
+                        {qa.missing.slice(0, 8).map((m, i) => <li key={i}>{m}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
+
             {/* Quick summary */}
             {r?.quick_summary && (
               <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
@@ -412,22 +447,28 @@ export default function PipelinePage() {
                   ) : <p className="text-xs text-gray-600">Not generated</p>}
                 </div>
 
-                {/* Full Audio */}
+                {/* Full Audio — one player per language */}
                 <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
-                    🔊 Full Audio
-                    {audioEntry && <span className="normal-case text-gray-600 ml-1">({audioEntry[0]})</span>}
-                  </p>
-                  {audioEntry?.[1]?.url ? (
-                    <>
-                      <audio controls src={audioEntry[1].url}
-                        className="w-full mb-2" style={{ accentColor: '#6366f1' }} />
-                      {audioEntry[1].duration && (
-                        <p className="text-xs text-gray-500 mb-2">Duration: {audioEntry[1].duration}</p>
-                      )}
-                      <a href={audioEntry[1].url} target="_blank" rel="noreferrer"
-                        className="text-xs text-indigo-400 hover:underline">Download MP3 ↗</a>
-                    </>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">🔊 Full Audio</p>
+                  {r?.audio && Object.keys(r.audio).length > 0 ? (
+                    <div className="space-y-3">
+                      {Object.entries(r.audio).map(([key, a]) => {
+                        const lang = key.replace('full_', '').toUpperCase()
+                        return (
+                          <div key={key}>
+                            <div className="flex items-center gap-2 mb-1">
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                                lang === 'AR' ? 'bg-emerald-900/40 text-emerald-300' : 'bg-indigo-900/40 text-indigo-300'
+                              }`}>{lang}</span>
+                              {a.duration && <span className="text-xs text-gray-500">{a.duration}</span>}
+                            </div>
+                            <audio controls src={a.url} className="w-full" style={{ accentColor: '#6366f1' }} />
+                            <a href={a.url} target="_blank" rel="noreferrer"
+                              className="text-[11px] text-indigo-400 hover:underline mt-1 inline-block">Download MP3 ↗</a>
+                          </div>
+                        )
+                      })}
+                    </div>
                   ) : <p className="text-xs text-gray-600">Not generated</p>}
                 </div>
 
@@ -533,25 +574,34 @@ export default function PipelinePage() {
               )
             })()}
 
-            {/* Full summary */}
-            {summaryEntry && (
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            {/* Full summaries — one card per language (original + translated) */}
+            {r?.summaries && Object.entries(r.summaries).map(([key, s]) => (
+              <div key={key} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Summary</p>
-                  <span className="text-xs text-gray-600">
-                    {summaryEntry.word_count} words · {summaryEntry.style}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Summary</p>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
+                      s.language === 'ar' ? 'bg-emerald-900/40 text-emerald-300' : 'bg-indigo-900/40 text-indigo-300'
+                    }`}>
+                      {(s.language || 'en').toUpperCase()}
+                    </span>
+                    {/* @ts-expect-error translated is an extra runtime flag */}
+                    {s.translated && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-300">translated</span>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-600">{s.word_count} words · {s.style}</span>
                 </div>
                 <p
-                  dir={summaryEntry.language === 'ar' ? 'rtl' : 'ltr'}
+                  dir={s.language === 'ar' ? 'rtl' : 'ltr'}
                   className={`text-sm text-gray-200 leading-relaxed whitespace-pre-wrap ${
-                    summaryEntry.language === 'ar' ? 'font-arabic' : ''
+                    s.language === 'ar' ? 'font-arabic' : ''
                   }`}
                 >
-                  {summaryEntry.text}
+                  {s.text}
                 </p>
               </div>
-            )}
+            ))}
 
             {/* Chapters */}
             {r?.chapters && r.chapters.length > 0 && (
