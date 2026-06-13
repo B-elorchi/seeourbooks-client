@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getAdminJobs, retryJob, rerunSteps, cancelJob, deleteJob } from '../../api/admin'
-import { PageShell, PageHeader, Badge } from './_shared'
+import { PageShell, PageHeader } from './_shared'
 import StatusBadge from '../../components/StatusBadge'
 import type { PipelineJob } from '../../types'
 
