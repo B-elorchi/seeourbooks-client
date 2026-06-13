@@ -160,7 +160,7 @@ export default function EpubReader({ url, onClose }: { url: string; onClose: () 
       <div key={`${it.href}-${i}`}>
         <button
           onClick={() => go(it.href)}
-          className="block w-full text-left px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white rounded transition-colors truncate"
+          className="block w-full text-left px-3 py-1.5 text-sm text-gray-600 hover:bg-gray-100 hover:text-gray-900 rounded transition-colors truncate"
           style={{ paddingLeft: `${0.75 + depth * 0.75}rem` }}
           title={it.label.trim()}
         >
@@ -172,28 +172,28 @@ export default function EpubReader({ url, onClose }: { url: string; onClose: () 
   }
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col">
+    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex flex-col">
       {/* Top bar */}
-      <div className="flex items-center justify-between px-4 py-2.5 bg-gray-900 border-b border-gray-800 shrink-0">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-white border-b border-gray-200 shrink-0">
         <div className="flex items-center gap-3 min-w-0">
           <button
             onClick={() => setShowToc(v => !v)}
             title="Toggle contents"
-            className="p-1.5 rounded-lg hover:bg-gray-800 text-gray-400 hover:text-white transition-colors"
+            className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-500 hover:text-gray-900 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <span className="text-sm text-gray-300 truncate">{chapterLabel || 'EPUB Preview'}</span>
+          <span className="text-sm text-gray-700 truncate">{chapterLabel || 'EPUB Preview'}</span>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <a href={url} target="_blank" rel="noreferrer"
-            className="text-xs text-indigo-400 hover:underline px-2">Download ↗</a>
+            className="text-xs text-blue-600 hover:underline px-2">Download ↗</a>
           <button
             onClick={onClose}
             title="Close (Esc)"
-            className="p-1.5 rounded-lg hover:bg-red-700 text-gray-400 hover:text-white transition-colors"
+            className="p-1.5 rounded-lg hover:bg-red-50 text-gray-500 hover:text-red-600 transition-colors"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -206,11 +206,11 @@ export default function EpubReader({ url, onClose }: { url: string; onClose: () 
       <div className="flex flex-1 min-h-0">
         {/* ToC sidebar */}
         {showToc && (
-          <div className="w-72 shrink-0 bg-gray-900 border-r border-gray-800 overflow-auto py-2">
-            <p className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500 font-medium">Contents</p>
+          <div className="w-72 shrink-0 bg-gray-50 border-r border-gray-200 overflow-auto py-2">
+            <p className="px-3 py-1 text-[11px] uppercase tracking-wide text-gray-400 font-medium">Contents</p>
             {toc.length > 0
               ? renderTocItems(toc)
-              : <p className="px-3 py-2 text-xs text-gray-600">No contents</p>}
+              : <p className="px-3 py-2 text-xs text-gray-500">No contents</p>}
           </div>
         )}
 

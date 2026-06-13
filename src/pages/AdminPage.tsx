@@ -492,6 +492,33 @@ const PROVIDER_GROUPS: Array<{
       },
     ],
   },
+  {
+    title: 'Security — API Keys',
+    rows: [
+      {
+        key: 'API_KEY_AUTH_ENABLED',
+        label: 'Require X-API-Key header on all requests',
+        options: ['false', 'true'],
+      },
+    ],
+  },
+  {
+    title: 'Watermarks',
+    rows: [
+      {
+        key: 'WATERMARK_TEXT',
+        label: 'Watermark text (stamped on covers, audio ID3, mindmaps)',
+        options: [],
+        type: 'text',
+        placeholder: 'SeeOurBook.com',
+      },
+      {
+        key: 'WATERMARK_POSITION',
+        label: 'Cover image watermark position',
+        options: ['bottom-right', 'bottom-left', 'top-right', 'top-left'],
+      },
+    ],
+  },
 ]
 
 // ── Provider badge ────────────────────────────────────────────────────────────

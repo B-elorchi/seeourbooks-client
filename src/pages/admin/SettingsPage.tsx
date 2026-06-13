@@ -1,0 +1,692 @@
+import { useState, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
+import {
+  getConfig, setConfig,
+  getOpenRouterModels, getElevenLabsVoices, previewTTS,
+} from '../../api/admin'
+import type { ElevenLabsVoice } from '../../api/admin'
+import { PageShell, PageHeader } from './_shared'
+
+// ── Model groups ──────────────────────────────────────────────────────────────
+const CLAUDE_MODELS   = ['claude-haiku-4-5-20251001', 'claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-opus-4-7']
+const GPT_CHAT_MODELS = ['gpt-4.1-mini', 'gpt-4.1', 'o3-mini', 'o1-mini']
+const OPENAI_IMG_MODELS = ['dall-e-3', 'gpt-image-1', 'dall-e-2']
+const OR_IMG_MODELS = [
+  'google/gemini-2.5-flash-image',
+  'black-forest-labs/flux-1.1-pro',
+  'black-forest-labs/flux-schnell',
+  'stability-ai/stable-diffusion-3.5-large',
+]
+const OR_CLAUDE = CLAUDE_MODELS.map(m => `anthropic/${m}`)
+const OR_GPT    = GPT_CHAT_MODELS.map(m => `openai/${m}`)
+
+// ── Option types ──────────────────────────────────────────────────────────────
+type OptGroup  = { group: string; items: string[] }
+type OptionList = Array<string | OptGroup>
+type RowType   = 'text' | 'combo'
+const g = (group: string, items: string[]): OptGroup => ({ group, items })
+
+function flattenOptions(opts: OptionList): string[] {
+  const out: string[] = []
+  for (const o of opts) {
+    if (typeof o === 'string') out.push(o)
+    else out.push(...o.items)
+  }
+  return out
+}
+
+// ── Provider badge ────────────────────────────────────────────────────────────
+type BadgeInfo = { label: string; className: string }
+function getProviderBadge(value: string): BadgeInfo | null {
+  if (value.startsWith('anthropic/'))
+    return { label: 'OpenRouter › Anthropic', className: 'bg-violet-50 text-violet-700 border border-violet-200' }
+  if (value.startsWith('openai/'))
+    return { label: 'OpenRouter › OpenAI', className: 'bg-violet-50 text-violet-700 border border-violet-200' }
+  if (value.includes('/'))
+    return { label: 'OpenRouter', className: 'bg-violet-50 text-violet-700 border border-violet-200' }
+  if (value.startsWith('claude-'))
+    return { label: 'Anthropic', className: 'bg-orange-50 text-orange-700 border border-orange-200' }
+  if (value.startsWith('gpt-') || value.startsWith('o1-') || value.startsWith('o3-') ||
+      value.startsWith('dall-e') || value.startsWith('gpt-image'))
+    return { label: 'OpenAI', className: 'bg-emerald-900/50 text-emerald-300 border border-emerald-700' }
+  return null
+}
+
+// ── Config groups ─────────────────────────────────────────────────────────────
+type ConfigRow = {
+  key: string; label: string; options: OptionList; type?: RowType
+  placeholder?: string; labelMap?: Record<string, string>
+  // When set, the row only renders if the predicate returns true for the
+  // current config. Used to show provider-specific fields (ElevenLabs voices,
+  // Cartesia IDs, …) only when that provider is actually selected.
+  showIf?: (cfg: Record<string, string>) => boolean
+}
+
+// TTS provider-specific rows are shown only when that provider is picked for
+// either the EN or AR voice. Keeps the panel focused on what's in use.
+const ttsUses = (provider: string) => (cfg: Record<string, string>) =>
+  cfg.TTS_PROVIDER_EN === provider || cfg.TTS_PROVIDER_AR === provider
+
+const PROVIDER_GROUPS: Array<{
+  title: string
+  rows: ConfigRow[]
+}> = [
+  {
+    title: 'Summarization',
+    rows: [
+      { key: 'MODEL_CHUNK',  label: 'Chapter model (Pass 1)',  options: [g('🔀 OpenRouter → OpenAI', OR_GPT), g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE)] },
+      { key: 'MODEL_SONNET', label: 'Full summary (Pass 2)',   options: [g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE)] },
+      { key: 'MODEL_OPUS',   label: 'Tashkeel / Review (AR)',  options: [g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE)] },
+      { key: 'CHUNK_WORDS_EN',         label: 'Chunk size — words per chunk (EN)',               options: [], type: 'text', placeholder: '1500' },
+      { key: 'CHUNK_WORDS_AR',         label: 'Chunk size — words per chunk (AR)',               options: [], type: 'text', placeholder: '1500' },
+      { key: 'SUMMARY_MAX_WORDS_EN',   label: 'Max summary words (EN) — 0 = use length preset', options: [], type: 'text', placeholder: '0 = preset (3/5/10/15 min)' },
+      { key: 'SUMMARY_MAX_WORDS_AR',   label: 'Max summary words (AR) — 0 = use length preset', options: [], type: 'text', placeholder: '0 = preset (3/5/10/15 min)' },
+      { key: 'CHAPTER_SUMMARY_MAX_WORDS', label: 'Max words per chapter summary — 0 = default', options: [], type: 'text', placeholder: '0 = default (3-5 sentences)' },
+      { key: 'SUMMARY_QA_ENABLED',    label: 'Summary coverage check — gate audio',             options: ['true', 'false'] },
+      { key: 'SUMMARY_QA_MODEL',      label: 'Coverage check model (scores 0-100)',             options: [g('🔀 OpenRouter → DeepSeek', ['deepseek/deepseek-chat', 'deepseek/deepseek-r1', 'deepseek/deepseek-chat-v3.1']), g('🔀 OpenRouter → OpenAI', OR_GPT), g('🟣 Anthropic — Native API', CLAUDE_MODELS)], type: 'combo', placeholder: 'deepseek/deepseek-chat' },
+      { key: 'SUMMARY_QA_THRESHOLD',  label: 'Min coverage score to allow audio (%)',           options: [], type: 'text', placeholder: '70' },
+      { key: 'TRANSLATE_SUMMARY_ENABLED', label: 'Translate summary to other language (EN↔AR)', options: ['true', 'false'] },
+      { key: 'TRANSLATE_MODEL',       label: 'Translation model',                               options: [g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE), g('🔀 OpenRouter → OpenAI', OR_GPT), g('🔀 OpenRouter → DeepSeek', ['deepseek/deepseek-chat'])], type: 'combo', placeholder: 'Pick a translation model…' },
+      { key: 'TARGET_LANG_AUDIO_ENABLED', label: 'Also generate audio in the translated language', options: ['false', 'true'] },
+    ],
+  },
+  {
+    title: 'Mind Map',
+    rows: [
+      { key: 'MINDMAP_FORMAT',           label: 'Output format',               options: ['mermaid', 'json'] },
+      { key: 'MODEL_MINDMAP',            label: 'Mind map model',              options: [g('🟢 OpenAI — Native API', GPT_CHAT_MODELS), g('🔀 OpenRouter → OpenAI', OR_GPT), g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE)] },
+      { key: 'MINDMAP_JSON_MAX_TOKENS',  label: 'JSON max tokens (0 = unlimited)', options: [], type: 'text', placeholder: '0 = unlimited (recommended)' },
+    ],
+  },
+  {
+    title: 'Text-to-Speech',
+    rows: [
+      { key: 'TTS_PROVIDER_EN',        label: 'Provider (EN)',                 options: ['deepgram', 'elevenlabs', 'cartesia', 'openrouter', 'gemini'] },
+      { key: 'TTS_VOICE_EN',           label: 'Voice ID (EN)',                 options: ['aura-asteria-en', 'aura-arcas-en', 'aura-luna-en'], type: 'combo', placeholder: 'Deepgram voice  |  Cartesia UUID  |  ElevenLabs id  |  OpenAI/Gemini voice' },
+      { key: 'TTS_PROVIDER_AR',        label: 'Provider (AR) — ⚠️ Deepgram is EN-only', options: ['cartesia', 'elevenlabs', 'openrouter', 'gemini'] },
+      { key: 'TTS_VOICE_AR',           label: 'Voice ID (AR)',                 options: [], type: 'text', placeholder: 'Cartesia UUID  |  ElevenLabs ID  |  Gemini/OpenRouter voice name' },
+      { key: 'ELEVENLABS_VOICE_EN',    label: 'ElevenLabs voice (EN)',         options: [], type: 'combo', placeholder: 'Pick an ElevenLabs voice…', showIf: ttsUses('elevenlabs') },
+      { key: 'ELEVENLABS_VOICE_AR',    label: 'ElevenLabs voice (AR)',         options: [], type: 'combo', placeholder: 'Pick an ElevenLabs voice…', showIf: ttsUses('elevenlabs') },
+      { key: 'CARTESIA_MODEL',         label: 'Cartesia model',                options: [], type: 'text', placeholder: 'sonic-3.5-2026-05-04', showIf: ttsUses('cartesia') },
+      { key: 'CARTESIA_VOICE_EN',      label: 'Cartesia voice ID (EN)',        options: [], type: 'text', placeholder: 'a0e99841-438c-4a64-b679-ae501e7d6091', showIf: ttsUses('cartesia') },
+      { key: 'CARTESIA_VOICE_AR',      label: 'Cartesia voice ID (AR)',        options: [], type: 'text', placeholder: 'voice UUID from play.cartesia.ai/voices', showIf: ttsUses('cartesia') },
+      { key: 'GEMINI_TTS_MODEL',       label: 'Gemini TTS model',             options: ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview'], type: 'combo', placeholder: 'gemini-2.5-flash-preview-tts', showIf: ttsUses('gemini') },
+      { key: 'GEMINI_TTS_VOICE',       label: 'Gemini TTS voice',             options: ['Kore', 'Charon', 'Puck', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr'], placeholder: 'Kore', showIf: ttsUses('gemini') },
+      { key: 'OPENROUTER_TTS_MODEL',   label: 'OpenRouter TTS model',         options: ['openai/gpt-audio', 'openai/gpt-audio-mini', 'google/gemini-2.5-flash-tts-preview', 'google/gemini-3.1-flash-tts-preview'], type: 'combo', placeholder: 'openai/gpt-audio-mini', showIf: ttsUses('openrouter') },
+      { key: 'OPENROUTER_TTS_VOICE',   label: 'OpenRouter TTS voice',         options: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'coral', 'verse', 'ballad', 'ash', 'sage', 'marin', 'cedar'], placeholder: 'alloy', showIf: ttsUses('openrouter') },
+    ],
+  },
+  {
+    title: 'Cover Image',
+    rows: [
+      { key: 'IMAGE_MODEL_EN', label: 'Model (EN)', type: 'combo', placeholder: 'Pick or type any OpenRouter / OpenAI model name…', options: [g('🟢 OpenAI — Native API', OPENAI_IMG_MODELS), g('🔀 OpenRouter → FLUX / Gemini / SD', OR_IMG_MODELS)] },
+      { key: 'IMAGE_MODEL_AR', label: 'Model (AR)', type: 'combo', placeholder: 'Pick or type any OpenRouter / OpenAI model name…', options: [g('🟢 OpenAI — Native API', OPENAI_IMG_MODELS), g('🔀 OpenRouter → FLUX / Gemini / SD', OR_IMG_MODELS)] },
+      { key: 'IMAGE_QUALITY',  label: 'Quality',   options: ['high', 'standard', 'auto'] },
+      { key: 'IMAGE_SIZE',     label: 'Size',      options: ['1024x1536', '1024x1024', '1536x1024', 'auto', '1024x1792', '1792x1024', '512x512'] },
+    ],
+  },
+  {
+    title: 'Alt Text',
+    rows: [
+      { key: 'ALTTEXT_PROVIDER_EN', label: 'Provider (EN)', options: ['claude', 'openai'] },
+      { key: 'ALTTEXT_MODEL_EN',    label: 'Model (EN)',    options: [g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🟢 OpenAI — Native API', GPT_CHAT_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE), g('🔀 OpenRouter → OpenAI', OR_GPT)] },
+      { key: 'ALTTEXT_PROVIDER_AR', label: 'Provider (AR)', options: ['claude', 'openai'] },
+      { key: 'ALTTEXT_MODEL_AR',    label: 'Model (AR)',    options: [g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🟢 OpenAI — Native API', GPT_CHAT_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE), g('🔀 OpenRouter → OpenAI', OR_GPT)] },
+    ],
+  },
+  {
+    title: 'Storage',
+    rows: [
+      { key: 'STORAGE_PROVIDER', label: 'Provider', options: ['spaces', 'minio'] },
+    ],
+  },
+  {
+    title: 'Pipeline Steps',
+    rows: [
+      { key: 'PIPELINE_STEP_TTS',              label: 'Audio (TTS)',      options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_COVER',            label: 'Cover Image',      options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_MINDMAP',          label: 'Mind Map',         options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_ALTTEXT',          label: 'Alt Text',         options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_AUDIO_PROCESSING', label: 'Audio Processing', options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_INJECT_EPUB',      label: 'Inject EPUB',      options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_VIDEO',            label: 'Video',            options: ['true', 'false'] },
+    ],
+  },
+  {
+    title: 'Video Generation',
+    rows: [
+      { key: 'VIDEO_PROVIDER',     label: 'Provider',    options: ['moviepy', 'svd', 'cogvideox'] },
+      { key: 'VIDEO_ORIENTATION',  label: 'Orientation', options: ['portrait', 'landscape'] },
+      { key: 'VIDEO_FPS',          label: 'Frame rate',  options: ['24', '30', '60'] },
+      { key: 'VIDEO_BITRATE',      label: 'Bitrate',     options: ['2500k', '3500k', '5000k', '8000k'] },
+    ],
+  },
+  {
+    title: 'EPUB Source',
+    rows: [
+      { key: 'BOOK_FILES_BASE_URL', label: 'Base URL for /books/{english|arabic}/{book_id}.epub', options: [], type: 'text', placeholder: 'https://files.seeourbooks.com' },
+    ],
+  },
+  {
+    title: 'Documents Pipeline (PDF → OCR → AI)',
+    rows: [
+      { key: 'DOC_AI_PROVIDER',      label: 'AI Provider',   options: ['openrouter', 'deepseek', 'openai', 'claude'] },
+      { key: 'DOC_AI_MODEL',         label: 'AI Model',      type: 'combo', placeholder: 'deepseek/deepseek-chat', options: [g('🌟 Recommended', ['deepseek/deepseek-chat', 'deepseek/deepseek-chat-v3-0324', 'google/gemini-2.5-flash-preview', 'qwen/qwen2.5-72b-instruct']), g('💎 Higher quality', ['anthropic/claude-sonnet-4-6', 'openai/gpt-4.1-mini', 'openai/gpt-4.1', 'meta-llama/llama-3.3-70b-instruct']), g('🟣 Native Anthropic', CLAUDE_MODELS), g('🟢 Native OpenAI', GPT_CHAT_MODELS)] },
+      { key: 'DOC_OCR_LANGUAGES',    label: 'OCR Languages (tesseract codes)', options: [], type: 'text', placeholder: 'ara+eng' },
+      { key: 'DOC_CHUNK_SIZE_WORDS', label: 'Chunk size (words)',  options: [], type: 'text', placeholder: '750' },
+      { key: 'EMBEDDING_PROVIDER',   label: 'Embedding Provider', options: ['', 'openrouter', 'openai', 'deepseek'] },
+      { key: 'EMBEDDING_MODEL',      label: 'Embedding Model',    type: 'combo', placeholder: 'openai/text-embedding-3-small', options: [g('🌟 Recommended (OpenRouter)', ['openai/text-embedding-3-small', 'openai/text-embedding-3-large', 'voyageai/voyage-3', 'voyageai/voyage-3-large', 'cohere/embed-multilingual-v3.0']), g('🟢 OpenAI native', ['text-embedding-3-small', 'text-embedding-3-large', 'text-embedding-ada-002'])] },
+    ],
+  },
+  {
+    title: 'Reliability — Model Fallback',
+    rows: [
+      { key: 'ENABLE_MODEL_FALLBACK',            label: 'Auto-fallback on model failure',  options: ['true', 'false'] },
+      { key: 'FALLBACK_claude-haiku-4-5-20251001', label: 'Fallback chain — Haiku',       options: [], type: 'text', placeholder: 'anthropic/claude-haiku-4-5, openai/gpt-4.1-mini, gpt-4.1-mini' },
+      { key: 'FALLBACK_claude-sonnet-4-6',       label: 'Fallback chain — Sonnet',        options: [], type: 'text', placeholder: 'anthropic/claude-sonnet-4-6, openai/gpt-4.1, gpt-4.1' },
+      { key: 'FALLBACK_claude-opus-4-7',         label: 'Fallback chain — Opus',          options: [], type: 'text', placeholder: 'anthropic/claude-opus-4-7, openai/gpt-4.1, gpt-4.1' },
+      { key: 'FALLBACK_gpt-4.1-mini',            label: 'Fallback chain — gpt-4.1-mini', options: [], type: 'text', placeholder: 'openai/gpt-4.1-mini, anthropic/claude-haiku-4-5, claude-haiku-4-5' },
+    ],
+  },
+  {
+    title: 'Security — API Keys',
+    rows: [
+      { key: 'API_KEY_AUTH_ENABLED', label: 'Require X-API-Key header on all requests', options: ['false', 'true'] },
+    ],
+  },
+  {
+    title: 'Watermarks',
+    rows: [
+      { key: 'WATERMARK_TEXT',     label: 'Watermark text (stamped on covers, audio ID3, mindmaps)', options: [], type: 'text', placeholder: 'SeeOurBook.com' },
+      { key: 'WATERMARK_POSITION', label: 'Cover image watermark position',                           options: ['bottom-right', 'bottom-left', 'top-right', 'top-left'] },
+    ],
+  },
+]
+
+// ── Searchable combo dropdown ─────────────────────────────────────────────────
+function SearchableSelect({ value, options, placeholder, onChange, labelMap }: {
+  value: string; options: OptionList; placeholder?: string
+  onChange: (v: string) => void; labelMap?: Record<string, string>
+}) {
+  const lbl = (v: string) => labelMap?.[v] ?? v
+  const [open, setOpen]   = useState(false)
+  const [query, setQuery] = useState('')
+  const [pos, setPos]     = useState<{ top: number; left: number; width: number } | null>(null)
+  const buttonRef         = useRef<HTMLButtonElement>(null)
+  const popoverRef        = useRef<HTMLDivElement>(null)
+  const POPOVER_WIDTH = 360
+
+  function updatePosition() {
+    const btn = buttonRef.current
+    if (!btn) return
+    const rect = btn.getBoundingClientRect()
+    const left = Math.max(8, rect.right - POPOVER_WIDTH)
+    let top = rect.bottom + 4
+    if (top + 360 > window.innerHeight && rect.top > 360) top = rect.top - 360 - 4
+    setPos({ top, left, width: POPOVER_WIDTH })
+  }
+
+  useEffect(() => {
+    if (!open) return
+    updatePosition()
+    window.addEventListener('scroll', updatePosition, true)
+    window.addEventListener('resize', updatePosition)
+    return () => { window.removeEventListener('scroll', updatePosition, true); window.removeEventListener('resize', updatePosition) }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  useEffect(() => {
+    if (!open) return
+    function handler(e: MouseEvent) {
+      const t = e.target as Node
+      if (!buttonRef.current?.contains(t) && !popoverRef.current?.contains(t)) { setOpen(false); setQuery('') }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [open])
+
+  const matches = (s: string) => !query || s.toLowerCase().includes(query.toLowerCase()) || lbl(s).toLowerCase().includes(query.toLowerCase())
+  const flatTop: string[] = []; const grouped: OptGroup[] = []
+  for (const o of options) {
+    if (typeof o === 'string') { if (matches(o)) flatTop.push(o) }
+    else { const items = o.items.filter(matches); if (items.length > 0) grouped.push({ group: o.group, items }) }
+  }
+  const allValues = flattenOptions(options)
+  const showCustomCommit = query.trim() !== '' && !allValues.includes(query.trim())
+  function commit(v: string) { onChange(v); setOpen(false); setQuery('') }
+  const totalMatches = flatTop.length + grouped.reduce((s, gg) => s + gg.items.length, 0)
+
+  const popover = open && pos ? (
+    <div ref={popoverRef} style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, zIndex: 9999 }}
+      className="bg-white border border-gray-200 rounded-lg shadow-2xl">
+      <input type="text" autoFocus value={query} onChange={e => setQuery(e.target.value)}
+        onKeyDown={e => { if (e.key === 'Escape') { setOpen(false); setQuery('') }; if (e.key === 'Enter' && showCustomCommit) commit(query.trim()) }}
+        placeholder="Search models…  (or paste a custom name)"
+        className="w-full px-3 py-2 bg-gray-50 border-b border-gray-200 text-sm text-gray-900 focus:outline-none placeholder:text-gray-400 rounded-t-lg" />
+      <div className="max-h-72 overflow-y-auto">
+        {flatTop.map(opt => (
+          <button key={opt} type="button" onClick={() => commit(opt)}
+            className={`block w-full text-left px-3 py-1.5 text-sm font-mono hover:bg-indigo-50 ${value === opt ? 'bg-indigo-50 text-indigo-700' : 'text-gray-800'}`}>
+            {lbl(opt)}
+          </button>
+        ))}
+        {grouped.map(grp => (
+          <div key={grp.group}>
+            <div className="sticky top-0 px-3 py-1 text-[11px] uppercase tracking-wide text-gray-500 bg-white/95 border-b border-gray-200">{grp.group}</div>
+            {grp.items.map(opt => (
+              <button key={opt} type="button" onClick={() => commit(opt)}
+                className={`block w-full text-left px-3 py-1.5 text-sm font-mono hover:bg-indigo-50 ${value === opt ? 'bg-indigo-50 text-indigo-700' : 'text-gray-800'}`}>
+                {lbl(opt)}
+              </button>
+            ))}
+          </div>
+        ))}
+        {totalMatches === 0 && !showCustomCommit && (
+          <div className="px-3 py-4 text-center text-sm text-gray-500">No models match "{query}"</div>
+        )}
+        {showCustomCommit && (
+          <button type="button" onClick={() => commit(query.trim())}
+            className="block w-full text-left px-3 py-2 text-sm hover:bg-indigo-50 border-t border-gray-200 text-gray-700">
+            ✏️ Use "<span className="font-mono text-indigo-600">{query.trim()}</span>" as custom
+          </button>
+        )}
+      </div>
+      <div className="px-3 py-1.5 border-t border-gray-200 text-[11px] text-gray-600 flex justify-between rounded-b-lg">
+        <span>{totalMatches} model{totalMatches === 1 ? '' : 's'}</span>
+        <span>Esc to close · Enter to use custom</span>
+      </div>
+    </div>
+  ) : null
+
+  return (
+    <>
+      <button ref={buttonRef} type="button" onClick={() => setOpen(o => !o)}
+        className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:border-indigo-400 w-[320px] text-left flex items-center justify-between gap-2 hover:border-gray-600">
+        <span className={`truncate ${value ? 'font-mono' : 'text-gray-500'}`}>{value ? lbl(value) : (placeholder || 'Select…')}</span>
+        <span className="text-gray-500 text-xs">▾</span>
+      </button>
+      {popover && createPortal(popover, document.body)}
+    </>
+  )
+}
+
+// ── Prompt rows ───────────────────────────────────────────────────────────────
+const PROMPT_ROWS: Array<{ key: string; label: string; description: string; variables: string[] }> = [
+  { key: 'PROMPT_COVER',           label: 'Cover Image Prompt',      description: 'Sent to the image generation model. Controls the visual style of the generated cover.', variables: ['{title}', '{author}', '{details}', '{summary}', '{genre_hint}'] },
+  { key: 'PROMPT_MINDMAP_MERMAID', label: 'Mind Map Prompt — Mermaid', description: 'Used when MINDMAP_FORMAT = mermaid. Must output valid Mermaid graph TD syntax.', variables: ['{title}', '{summary}', '{lang_note}'] },
+  { key: 'PROMPT_MINDMAP_JSON',    label: 'Mind Map Prompt — JSON',   description: 'Used when MINDMAP_FORMAT = json. Must output the exact JSON structure.', variables: ['{title}', '{summary}', '{lang_note}'] },
+]
+
+// ── Voice preview ─────────────────────────────────────────────────────────────
+const VOICE_PRESETS: Record<string, { text: string }> = {
+  en: { text: 'Hello, this is a voice preview for English text-to-speech.' },
+  ar: { text: 'مرحباً، هذا معاينة صوتية للنص العربي.' },
+}
+
+type VoiceInfo  = { name: string; langs: string[] }
+type ModelVoices = { voices: VoiceInfo[]; defaultVoice: string }
+
+const PROVIDER_MODEL_VOICES: Record<string, Record<string, ModelVoices>> = {
+  gemini: { 'gemini-2.5-flash-preview-tts': { voices: ['Kore','Charon','Puck','Fenrir','Aoede','Leda','Orus','Zephyr'].map(n => ({ name: n, langs: ['all'] })), defaultVoice: 'Kore' }, 'gemini-3.1-flash-tts-preview': { voices: ['Kore','Charon','Puck','Fenrir','Aoede','Leda','Orus','Zephyr'].map(n => ({ name: n, langs: ['all'] })), defaultVoice: 'Kore' } },
+  openrouter: { 'openai/gpt-audio': { voices: ['alloy','echo','fable','onyx','nova','shimmer','coral','verse','ballad','ash','sage','marin','cedar'].map(n => ({ name: n, langs: ['all'] })), defaultVoice: 'alloy' }, 'openai/gpt-audio-mini': { voices: ['alloy','echo','fable','onyx','nova','shimmer','coral','verse','ballad','ash','sage','marin','cedar'].map(n => ({ name: n, langs: ['all'] })), defaultVoice: 'alloy' } },
+  cartesia:   { 'sonic-3.5-2026-05-04': { voices: [{ name: 'sonic-3.5-2026-05-04', langs: ['all'] }], defaultVoice: 'sonic-3.5-2026-05-04' } },
+  elevenlabs: { 'eleven_multilingual_v2': { voices: [{ name: 'eleven_multilingual_v2', langs: ['all'] }], defaultVoice: 'eleven_multilingual_v2' } },
+  deepgram:   { 'aura-asteria-en': { voices: [{ name: 'aura-asteria-en', langs: ['en'] }, { name: 'aura-arcas-en', langs: ['en'] }, { name: 'aura-luna-en', langs: ['en'] }], defaultVoice: 'aura-asteria-en' } },
+}
+const PROVIDER_MODELS: Record<string, string[]> = {
+  gemini:     ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview'],
+  openrouter: ['openai/gpt-audio', 'openai/gpt-audio-mini'],
+  cartesia:   ['sonic-3.5-2026-05-04'],
+  elevenlabs: ['eleven_multilingual_v2'],
+  deepgram:   ['aura-asteria-en'],
+}
+
+// ── Sections ──────────────────────────────────────────────────────────────────
+function ProvidersSection() {
+  const [config,  setConfigState] = useState<Record<string, string>>({})
+  const [saving,  setSaving]      = useState<string | null>(null)
+  const [saved,   setSaved]       = useState<string | null>(null)
+  const [loading, setLoading]     = useState(true)
+  const [orImageModels, setOrImageModels] = useState<string[] | null>(null)
+  const [orChatModels,  setOrChatModels]  = useState<string[] | null>(null)
+  const [orVisionModels, setOrVisionModels] = useState<string[] | null>(null)
+  const [elVoices, setElVoices] = useState<ElevenLabsVoice[] | null>(null)
+
+  useEffect(() => {
+    getConfig().then(setConfigState).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  useEffect(() => {
+    getOpenRouterModels('image').then(r => { if (r.models?.length) setOrImageModels(r.models.map(m => m.id)) }).catch(() => {})
+    getOpenRouterModels('chat').then(r => { if (r.models?.length) setOrChatModels(r.models.map(m => m.id)) }).catch(() => {})
+    getOpenRouterModels('vision').then(r => { if (r.models?.length) setOrVisionModels(r.models.map(m => m.id)) }).catch(() => {})
+  }, [])
+
+  // Only hit the ElevenLabs API when ElevenLabs is the active TTS provider —
+  // avoids a needless (and noisy) upstream call on every Settings mount.
+  const usesElevenLabs = config.TTS_PROVIDER_EN === 'elevenlabs' || config.TTS_PROVIDER_AR === 'elevenlabs'
+  useEffect(() => {
+    if (!usesElevenLabs || elVoices) return
+    getElevenLabsVoices().then(r => { if (r.voices?.length) setElVoices(r.voices) }).catch(() => {})
+  }, [usesElevenLabs, elVoices])
+
+  const providerGroups = useMemo(() => {
+    const liveImage = orImageModels?.length ? orImageModels : OR_IMG_MODELS
+    const liveImageLabel = orImageModels?.length ? `🔀 OpenRouter — Live (${liveImage.length} image models)` : '🔀 OpenRouter → FLUX / Gemini / SD'
+    const liveChat = orChatModels?.length ? orChatModels : null
+    const liveChatLabel = liveChat ? `🔀 OpenRouter — Live (${liveChat.length} chat models)` : '🔀 OpenRouter'
+    const liveVision = orVisionModels?.length ? orVisionModels : null
+    const liveVisionLabel = liveVision ? `🔀 OpenRouter — Live (${liveVision.length} vision models)` : '🔀 OpenRouter'
+
+    const CHAT_ROW_KEYS   = new Set(['MODEL_CHUNK', 'MODEL_SONNET', 'MODEL_OPUS', 'MODEL_MINDMAP', 'DOC_AI_MODEL'])
+    const VISION_ROW_KEYS = new Set(['ALTTEXT_MODEL_EN', 'ALTTEXT_MODEL_AR'])
+    const IMAGE_ROW_KEYS  = new Set(['IMAGE_MODEL_EN', 'IMAGE_MODEL_AR'])
+
+    function buildElevenLabsOptions(lang: 'en' | 'ar'): { options: OptionList; labelMap: Record<string, string> } | null {
+      if (!elVoices?.length) return null
+      const labelMap: Record<string, string> = {}
+      for (const v of elVoices) {
+        const meta = [v.accent || v.language, v.gender].filter(Boolean).join(', ')
+        labelMap[v.voice_id] = meta ? `${v.name} · ${meta}` : v.name
+      }
+      const isLangMatch = (v: ElevenLabsVoice) => {
+        const l = (v.language || '').toLowerCase(); const a = (v.accent || '').toLowerCase()
+        if (lang === 'ar') return l.includes('ar') || a.includes('arab')
+        return l.includes('en') || a.includes('english') || a.includes('american') || a.includes('british')
+      }
+      const matched = elVoices.filter(isLangMatch).map(v => v.voice_id)
+      const others  = elVoices.filter(v => !isLangMatch(v)).map(v => v.voice_id)
+      const groups: OptGroup[] = []
+      if (matched.length) groups.push(g(lang === 'ar' ? '🟢 Arabic voices' : '🟢 English voices', matched))
+      if (others.length)  groups.push(g('All other voices', others))
+      return { options: groups, labelMap }
+    }
+    const elEN = buildElevenLabsOptions('en')
+    const elAR = buildElevenLabsOptions('ar')
+
+    return PROVIDER_GROUPS.map(group => ({
+      ...group,
+      rows: group.rows.map(row => {
+        if (IMAGE_ROW_KEYS.has(row.key)) return { ...row, type: 'combo' as RowType, options: [g('🟢 OpenAI — Native API', OPENAI_IMG_MODELS), g(liveImageLabel, liveImage)] as OptionList }
+        if (CHAT_ROW_KEYS.has(row.key)) {
+          const base = (row.options.filter(o => typeof o !== 'string') as OptGroup[]).filter(gg => !gg.group.startsWith('🔀'))
+          return { ...row, type: 'combo' as RowType, options: liveChat ? [...base, g(liveChatLabel, liveChat)] : row.options }
+        }
+        if (VISION_ROW_KEYS.has(row.key)) {
+          const base = (row.options.filter(o => typeof o !== 'string') as OptGroup[]).filter(gg => !gg.group.startsWith('🔀'))
+          return { ...row, type: 'combo' as RowType, options: liveVision ? [...base, g(liveVisionLabel, liveVision)] : row.options }
+        }
+        if (row.key === 'ELEVENLABS_VOICE_EN' && elEN) return { ...row, type: 'combo' as RowType, options: elEN.options, labelMap: elEN.labelMap }
+        if (row.key === 'ELEVENLABS_VOICE_AR' && elAR) return { ...row, type: 'combo' as RowType, options: elAR.options, labelMap: elAR.labelMap }
+        return row
+      }),
+    }))
+  }, [orImageModels, orChatModels, orVisionModels, elVoices])
+
+  async function handleChange(key: string, value: string) {
+    setConfigState(prev => ({ ...prev, [key]: value }))
+    setSaving(key)
+    try { await setConfig(key, value); setSaved(key); setTimeout(() => setSaved(null), 2000) }
+    catch { /* silent */ }
+    finally { setSaving(null) }
+  }
+
+  if (loading) return <div className="p-6 text-sm text-gray-500">Loading config…</div>
+
+  return (
+    <div className="space-y-6">
+      {providerGroups.map(group => {
+        // Hide rows gated behind a provider selection that isn't active.
+        const visibleRows = group.rows.filter(row => !row.showIf || row.showIf(config))
+        if (visibleRows.length === 0) return null
+        return (
+        <div key={group.title} className="bg-white border border-gray-200 rounded-xl overflow-visible">
+          <div className="px-5 py-3 border-b border-gray-200">
+            <h2 className="text-sm font-semibold text-gray-800">{group.title}</h2>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {visibleRows.map(row => {
+              const firstFlat  = row.options.find(o => typeof o === 'string') as string | undefined
+              const firstGroup = row.options.find(o => typeof o !== 'string') as OptGroup | undefined
+              const defaultVal = firstFlat ?? firstGroup?.items[0] ?? ''
+              const current  = config[row.key] ?? defaultVal
+              const isSaving = saving === row.key
+              const isSaved  = saved  === row.key
+              const badge    = getProviderBadge(current)
+
+              return (
+                <div key={row.key} className="flex items-center justify-between px-5 py-3 gap-4">
+                  <div className="min-w-0">
+                    <span className="text-sm text-gray-700">{row.label}</span>
+                    <code className="text-xs text-gray-600 block mt-0.5">{row.key}</code>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {badge && <span className={`text-xs px-2 py-0.5 rounded-full font-medium whitespace-nowrap ${badge.className}`}>{badge.label}</span>}
+                    {isSaved  && <span className="text-xs text-green-400 whitespace-nowrap">Saved ✓</span>}
+                    {isSaving && <span className="text-xs text-gray-500 whitespace-nowrap">Saving…</span>}
+                    {row.type === 'text' ? (
+                      <input type="text" value={current} placeholder={row.placeholder ?? ''}
+                        onChange={e => handleChange(row.key, e.target.value)}
+                        onBlur={e => handleChange(row.key, e.target.value)}
+                        className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:border-indigo-400 w-[280px] placeholder:text-gray-400" />
+                    ) : row.type === 'combo' ? (
+                      <SearchableSelect value={current} options={row.options} placeholder={row.placeholder ?? 'Pick or search a model…'} onChange={v => handleChange(row.key, v)} labelMap={row.labelMap} />
+                    ) : (
+                      <select value={current} onChange={e => handleChange(row.key, e.target.value)}
+                        className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:border-indigo-400 max-w-[280px]">
+                        {row.options.map(opt =>
+                          typeof opt === 'string'
+                            ? <option key={opt} value={opt}>{opt}</option>
+                            : <optgroup key={opt.group} label={opt.group}>{opt.items.map(o => <option key={o} value={o}>{o}</option>)}</optgroup>
+                        )}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function PromptsSection() {
+  const [config,  setConfigState] = useState<Record<string, string>>({})
+  const [drafts,  setDrafts]      = useState<Record<string, string>>({})
+  const [saving,  setSaving]      = useState<string | null>(null)
+  const [saved,   setSaved]       = useState<string | null>(null)
+  const [loading, setLoading]     = useState(true)
+
+  useEffect(() => {
+    getConfig().then(cfg => {
+      setConfigState(cfg)
+      const initial: Record<string, string> = {}
+      for (const row of PROMPT_ROWS) initial[row.key] = cfg[row.key] ?? ''
+      setDrafts(initial)
+    }).catch(() => {}).finally(() => setLoading(false))
+  }, [])
+
+  async function handleSave(key: string) {
+    setSaving(key)
+    try { await setConfig(key, drafts[key] ?? ''); setConfigState(prev => ({ ...prev, [key]: drafts[key] ?? '' })); setSaved(key); setTimeout(() => setSaved(null), 2000) }
+    catch { /* silent */ }
+    finally { setSaving(null) }
+  }
+
+  if (loading) return <div className="p-6 text-sm text-gray-500">Loading prompts…</div>
+
+  return (
+    <div className="space-y-6">
+      <p className="text-sm text-gray-500">Edit AI prompts for image generation and mind maps. Changes take effect on the next pipeline job.</p>
+      {PROMPT_ROWS.map(row => {
+        const draft    = drafts[row.key] ?? ''
+        const original = config[row.key] ?? ''
+        const isDirty  = draft !== original
+        const isSaving = saving === row.key
+        const isSaved  = saved  === row.key
+        return (
+          <div key={row.key} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+            <div className="px-5 py-3 border-b border-gray-200 flex items-start justify-between gap-4">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-800">{row.label}</h2>
+                <p className="text-xs text-gray-500 mt-0.5">{row.description}</p>
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {row.variables.map(v => <code key={v} className="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 text-indigo-600 border border-gray-200">{v}</code>)}
+                </div>
+              </div>
+              <code className="text-xs text-gray-600 shrink-0 mt-0.5">{row.key}</code>
+            </div>
+            <div className="p-4">
+              <textarea value={draft} onChange={e => setDrafts(prev => ({ ...prev, [row.key]: e.target.value }))} rows={12} spellCheck={false}
+                className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 font-mono focus:outline-none focus:border-indigo-400 resize-y leading-relaxed placeholder:text-gray-400" />
+            </div>
+            <div className="px-4 pb-4 flex items-center gap-3">
+              <button onClick={() => handleSave(row.key)} disabled={!isDirty || isSaving}
+                className="px-4 py-1.5 rounded-lg text-sm font-medium bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                {isSaving ? 'Saving…' : 'Save'}
+              </button>
+              {isDirty && !isSaving && <button onClick={() => setDrafts(prev => ({ ...prev, [row.key]: config[row.key] ?? '' }))} className="px-3 py-1.5 rounded-lg text-sm text-gray-400 hover:text-gray-900 hover:bg-gray-100 transition-colors">Discard</button>}
+              {isSaved && <span className="text-xs text-green-400">Saved ✓</span>}
+              {isDirty && !isSaving && <span className="text-xs text-amber-400 ml-auto">Unsaved changes</span>}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function VoicesSection() {
+  const [provider, setProvider]   = useState('gemini')
+  const [model, setModel]         = useState('')
+  const [voice, setVoice]         = useState('')
+  const [language, setLanguage]   = useState('en')
+  const [previewText, setPreviewText] = useState(VOICE_PRESETS.en.text)
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+  const [audioUrl, setAudioUrl]   = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  useEffect(() => { const models = PROVIDER_MODELS[provider] || []; setModel(models[0] || '') }, [provider])
+  useEffect(() => {
+    const mv = PROVIDER_MODEL_VOICES[provider]?.[model]
+    const valid = (mv?.voices || []).filter(v => v.langs.includes('all') || v.langs.includes(language))
+    const def = mv?.defaultVoice
+    setVoice(def && valid.some(v => v.name === def) ? def : (valid[0]?.name || ''))
+  }, [provider, model, language])
+  useEffect(() => { setPreviewText(VOICE_PRESETS[language]?.text || VOICE_PRESETS.en.text) }, [language])
+
+  async function handlePreview() {
+    setLoading(true); setError(null); setAudioUrl(null)
+    try {
+      const result = await previewTTS({ text: previewText, provider, model, voice, language })
+      const url = `data:${result.mime_type};base64,${result.audio_base64}`
+      setAudioUrl(url)
+      setTimeout(() => { audioRef.current?.play().catch(() => {}) }, 100)
+    } catch (err) { setError(err instanceof Error ? err.message : String(err)) }
+    finally { setLoading(false) }
+  }
+
+  const availableModels = PROVIDER_MODELS[provider] || []
+  const modelVoices     = PROVIDER_MODEL_VOICES[provider]?.[model]
+  const availableVoices = (modelVoices?.voices || []).filter(v => v.langs.includes('all') || v.langs.includes(language))
+
+  return (
+    <div className="space-y-6 max-w-2xl">
+      <div className="bg-white border border-gray-200 rounded-xl p-5">
+        <h2 className="text-sm font-semibold text-gray-800 mb-4">TTS Voice Preview</h2>
+        <p className="text-xs text-gray-500 mb-4">Test voices before running a pipeline job.</p>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Provider</label>
+            <div className="flex gap-2 flex-wrap">
+              {['gemini', 'openrouter', 'cartesia', 'elevenlabs', 'deepgram'].map(p => (
+                <button key={p} onClick={() => setProvider(p)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${provider === p ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400 hover:text-gray-800 border border-gray-200'}`}>
+                  {p}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Language</label>
+            <div className="flex gap-2">
+              {(['en', 'ar'] as const).map(lang => (
+                <button key={lang} onClick={() => setLanguage(lang)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${language === lang ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400 hover:text-gray-800 border border-gray-200'}`}>
+                  {lang === 'en' ? 'English' : 'Arabic'}
+                </button>
+              ))}
+            </div>
+            {provider === 'deepgram' && language === 'ar' && <p className="text-xs text-red-600 mt-1">⚠️ Deepgram is English-only</p>}
+          </div>
+          {availableModels.length > 0 && (
+            <div>
+              <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Model</label>
+              <select value={model} onChange={e => setModel(e.target.value)}
+                className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-900 focus:outline-none focus:border-indigo-400 w-full">
+                {availableModels.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+          )}
+          {availableVoices.length > 0 ? (
+            <div>
+              <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Voice</label>
+              <div className="flex gap-2 flex-wrap">
+                {availableVoices.map(v => (
+                  <button key={v.name} onClick={() => setVoice(v.name)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${voice === v.name ? 'bg-indigo-600 text-white' : 'bg-gray-100 text-gray-400 hover:text-gray-800 border border-gray-200'}`}>
+                    {v.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-red-600">No voices available for this provider + language combination.</p>
+          )}
+          <div>
+            <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Preview text</label>
+            <textarea value={previewText} onChange={e => setPreviewText(e.target.value)} rows={3}
+              className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-indigo-400 w-full resize-none" />
+          </div>
+          <button onClick={handlePreview} disabled={loading || !voice}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium transition-colors">
+            {loading ? <span className="inline-block w-4 h-4 border border-white/40 border-t-white rounded-full animate-spin" /> : <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path strokeLinecap="round" strokeLinejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>}
+            {loading ? 'Generating…' : 'Preview Voice'}
+          </button>
+          {error && <div className="bg-red-50 border border-red-200 rounded-lg p-3"><p className="text-xs text-red-700 font-medium">Preview failed</p><p className="text-xs text-red-600 mt-1">{error}</p></div>}
+          {audioUrl && <div className="bg-gray-100 border border-gray-200 rounded-lg p-3"><audio ref={audioRef} controls src={audioUrl} className="w-full" /></div>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+type SubTab = 'providers' | 'prompts' | 'voices'
+
+export default function SettingsPage() {
+  const [tab, setTab] = useState<SubTab>('providers')
+
+  return (
+    <PageShell>
+      <PageHeader title="Settings" subtitle="Configure AI providers, prompts and voices" />
+
+      <div className="flex gap-1 mb-6 bg-white border border-gray-200 rounded-xl p-1 w-fit">
+        {([['providers','Providers'], ['prompts','Prompts'], ['voices','Voices']] as [SubTab, string][]).map(([id, label]) => (
+          <button key={id} onClick={() => setTab(id)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === id ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-gray-900'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'providers' && <ProvidersSection />}
+      {tab === 'prompts'   && <PromptsSection />}
+      {tab === 'voices'    && <VoicesSection />}
+    </PageShell>
+  )
+}

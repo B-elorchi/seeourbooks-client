@@ -16,11 +16,11 @@ function timeAgo(iso: string) {
 }
 
 const STEP_COLORS: Record<string, string> = {
-  done:    'bg-green-900/40 text-green-400 border-green-800',
-  failed:  'bg-red-900/40 text-red-400 border-red-800',
-  partial: 'bg-orange-900/40 text-orange-400 border-orange-800',
-  skipped: 'bg-gray-800 text-gray-600 border-gray-700',
-  running: 'bg-blue-900/40 text-blue-400 border-blue-800 animate-pulse',
+  done:    'bg-green-50 text-green-700 border-green-200',
+  failed:  'bg-red-50 text-red-600 border-red-200',
+  partial: 'bg-orange-50 text-orange-600 border-orange-200',
+  skipped: 'bg-gray-100 text-gray-400 border-gray-200',
+  running: 'bg-blue-50 text-blue-600 border-blue-200 animate-pulse',
 }
 
 export default function PipelinePage() {
@@ -143,21 +143,21 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
   })()
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-full">
       {/* ── Job list sidebar ─────────────────────────────────────────────── */}
-      <div className="w-80 shrink-0 border-r border-gray-800 flex flex-col">
-        <div className="p-4 border-b border-gray-800">
-          <h2 className="text-sm font-semibold text-gray-200">Pipeline Jobs</h2>
+      <div className="w-80 shrink-0 border-r border-gray-200 flex flex-col bg-white">
+        <div className="p-4 border-b border-gray-200">
+          <h2 className="text-sm font-semibold text-gray-900">Pipeline Jobs</h2>
           <div className="flex gap-3 mt-2 text-xs text-gray-500">
-            <span className="text-blue-400">{jobs.filter(j => j.status === 'running').length} running</span>
-            <span className="text-green-400">{jobs.filter(j => j.status === 'done').length} done</span>
-            <span className="text-red-400">{jobs.filter(j => j.status === 'failed').length} failed</span>
+            <span className="text-blue-600">{jobs.filter(j => j.status === 'running').length} running</span>
+            <span className="text-green-600">{jobs.filter(j => j.status === 'done').length} done</span>
+            <span className="text-red-600">{jobs.filter(j => j.status === 'failed').length} failed</span>
           </div>
         </div>
         <div className="overflow-auto flex-1">
           {loading && <p className="text-xs text-gray-500 p-4">Loading…</p>}
           {!loading && jobs.length === 0 && (
-            <p className="text-xs text-gray-600 p-4">No jobs yet.</p>
+            <p className="text-xs text-gray-400 p-4">No jobs yet.</p>
           )}
           {jobs.map(job => {
             const jr = typeof job.result === 'string'
@@ -165,11 +165,11 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
               : job.result
             return (
               <button key={job.id} onClick={() => setSelectedId(job.id)}
-                className={`w-full text-left px-4 py-3 border-b border-gray-800/50 hover:bg-gray-800/50 transition-colors ${
-                  selectedId === job.id ? 'bg-gray-800' : ''
+                className={`w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors ${
+                  selectedId === job.id ? 'bg-gray-50' : ''
                 }`}>
                 <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-medium text-gray-200 truncate">
+                  <span className="text-xs font-medium text-gray-800 truncate">
                     {jr?.metadata?.title ?? job.book_id}
                   </span>
                   <StatusBadge status={job.status} />
@@ -188,17 +188,17 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
       {/* ── Detail panel ─────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto p-6">
         {!selected && (
-          <div className="h-full flex items-center justify-center text-gray-600 text-sm">
+          <div className="h-full flex items-center justify-center text-gray-400 text-sm">
             Select a job to view details
           </div>
         )}
 
         {selected && (
-          <div className="max-w-3xl space-y-6">
+          <div className="w-full space-y-6">
             {/* Header */}
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <h1 className="text-xl font-semibold text-gray-100">
+                <h1 className="text-xl font-semibold text-gray-900">
                   {r?.metadata?.title ?? selected.book_id}
                 </h1>
                 <p className="text-sm text-gray-500 mt-0.5">
@@ -212,14 +212,14 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                   <span className="text-xs text-gray-500">{r.processing_time}</span>
                 )}
                 {selected.retry_count > 0 && (
-                  <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-900/40 text-yellow-400 border border-yellow-800">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">
                     {selected.retry_count}/{selected.max_retries} retries
                   </span>
                 )}
                 {(selected.status === 'running' || selected.status === 'queued') && (
                   <div className="flex items-center gap-2">
                     {cancelMsg && (
-                      <span className={`text-xs ${cancelMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
+                      <span className={`text-xs ${cancelMsg.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
                         {cancelMsg}
                       </span>
                     )}
@@ -250,7 +250,7 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                   return (
                     <div className="flex items-center gap-2">
                       {retryMsg && (
-                        <span className={`text-xs ${retryMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
+                        <span className={`text-xs ${retryMsg.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
                           {retryMsg}
                         </span>
                       )}
@@ -281,7 +281,7 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
               const allStepKeys = Object.keys(r.steps!)
               const allChecked  = allStepKeys.length > 0 && allStepKeys.every(s => checkedSteps.has(s))
               return (
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
                   {/* Header row */}
                   <div className="flex items-center justify-between mb-3 gap-3">
                     <div className="flex items-center gap-2">
@@ -297,9 +297,9 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                           <span className="text-[11px] text-gray-500">All</span>
                         </label>
                       )}
-                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Steps</p>
+                      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Steps</p>
                       {checkedSteps.size > 0 && (
-                        <span className="text-[11px] text-indigo-400">{checkedSteps.size} selected</span>
+                        <span className="text-[11px] text-indigo-600">{checkedSteps.size} selected</span>
                       )}
                     </div>
 
@@ -307,7 +307,7 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                     {!isBusy && (
                       <div className="flex items-center gap-2">
                         {regenMsg && (
-                          <span className={`text-xs ${regenMsg.startsWith('Error') ? 'text-red-400' : 'text-green-400'}`}>
+                          <span className={`text-xs ${regenMsg.startsWith('Error') ? 'text-red-600' : 'text-green-600'}`}>
                             {regenMsg}
                           </span>
                         )}
@@ -331,7 +331,7 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                         <button
                           onClick={() => handleRegen(allStepKeys)}
                           disabled={regenRunning}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-800 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-gray-400 hover:text-white text-xs font-medium transition-colors border border-gray-700 hover:border-indigo-500"
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed text-gray-600 hover:text-white text-xs font-medium transition-colors border border-gray-200 hover:border-indigo-500"
                         >
                           {regenRunning && checkedSteps.size === 0
                             ? <span className="inline-block w-3 h-3 border border-current/40 border-t-current rounded-full animate-spin" />
@@ -349,15 +349,17 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                   <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3">
                     {Object.entries(r.steps!).map(([step, s]) => {
                       const isChecked = checkedSteps.has(step)
+                      const errMsg = r.errors?.[step as keyof typeof r.errors] as string | undefined
                       return (
                         <label
                           key={step}
+                          title={errMsg ?? undefined}
                           className={`flex items-center gap-2 px-3 py-2 rounded-lg border cursor-pointer select-none transition-all ${
                             isBusy ? 'cursor-default opacity-60' : 'hover:brightness-125'
                           } ${
                             isChecked
-                              ? 'ring-2 ring-indigo-500 ring-offset-1 ring-offset-gray-900 ' + (STEP_COLORS[s] ?? 'bg-gray-800 text-gray-400 border-gray-700')
-                              : STEP_COLORS[s] ?? 'bg-gray-800 text-gray-400 border-gray-700'
+                              ? 'ring-2 ring-indigo-500 ring-offset-1 ring-offset-white ' + (STEP_COLORS[s] ?? 'bg-gray-100 text-gray-500 border-gray-200')
+                              : STEP_COLORS[s] ?? 'bg-gray-100 text-gray-500 border-gray-200'
                           }`}
                         >
                           {!isBusy && (
@@ -368,9 +370,14 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                               className="accent-indigo-400 w-3.5 h-3.5 shrink-0"
                             />
                           )}
-                          <div className="min-w-0">
+                          <div className="min-w-0 flex-1">
                             <p className="text-xs font-medium truncate">{step}</p>
                             <p className="text-[10px] opacity-60 capitalize">{s}</p>
+                            {errMsg && (s === 'failed' || s === 'partial') && (
+                              <p className="text-[10px] text-red-600 mt-0.5 leading-tight line-clamp-2 break-words">
+                                {errMsg}
+                              </p>
+                            )}
                           </div>
                           {s === 'running' && (
                             <span className="ml-auto inline-block w-2 h-2 rounded-full bg-blue-400 animate-pulse shrink-0" />
@@ -383,21 +390,43 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
               )
             })()}
 
+            {/* Step errors — shown immediately after the steps panel */}
+            {r?.errors && Object.keys(r.errors).length > 0 && (() => {
+              // Only show step-level errors (not per-chapter noise like audio_chapter_0)
+              const stepErrors = Object.entries(r.errors).filter(([k]) =>
+                !/_\d+$/.test(k)
+              )
+              if (!stepErrors.length) return null
+              return (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                  <p className="text-xs font-medium text-red-700 uppercase tracking-wide mb-2">Step Errors</p>
+                  <div className="space-y-1.5">
+                    {stepErrors.map(([step, msg]) => (
+                      <div key={step}>
+                        <span className="text-xs font-semibold text-red-700">{step}: </span>
+                        <span className="text-xs text-red-600">{String(msg)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
+
             {/* Summary coverage QA */}
             {r?.summary_qa && typeof r.summary_qa.score === 'number' && r.summary_qa.score >= 0 && (() => {
               const qa = r.summary_qa!
               const thr = qa.threshold ?? 70
               const ok = qa.passed
               return (
-                <div className={`rounded-xl p-4 border ${ok ? 'bg-emerald-950/30 border-emerald-900/50' : 'bg-red-950/30 border-red-900/50'}`}>
+                <div className={`rounded-xl p-4 border ${ok ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Summary Coverage Check</p>
                     {qa.model && <span className="text-[11px] text-gray-500 font-mono">{qa.model}</span>}
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className={`text-3xl font-bold ${ok ? 'text-emerald-400' : 'text-red-400'}`}>{qa.score}%</span>
+                    <span className={`text-3xl font-bold ${ok ? 'text-emerald-600' : 'text-red-600'}`}>{qa.score}%</span>
                     <div className="flex-1">
-                      <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                      <div className="h-2 rounded-full bg-gray-200 overflow-hidden">
                         <div className={`h-full ${ok ? 'bg-emerald-500' : 'bg-red-500'}`} style={{ width: `${Math.max(0, Math.min(100, qa.score))}%` }} />
                       </div>
                       <p className="text-xs text-gray-500 mt-1">
@@ -420,9 +449,9 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
 
             {/* Quick summary */}
             {r?.quick_summary && (
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Quick Summary</p>
-                <p className="text-sm text-gray-200 leading-relaxed">{r.quick_summary}</p>
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Quick Summary</p>
+                <p className="text-sm text-gray-700 leading-relaxed">{r.quick_summary}</p>
               </div>
             )}
 
@@ -431,8 +460,8 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
               <div className="grid grid-cols-2 gap-4">
 
                 {/* Cover */}
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">🖼 Cover</p>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">🖼 Cover</p>
                   {r.metadata?.cover_url ? (
                     <>
                       <img src={r.metadata.cover_url} alt={r.metadata.cover_alt_text ?? ''}
@@ -441,14 +470,14 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                         <p className="text-xs text-gray-500 leading-relaxed mb-2">{r.metadata.cover_alt_text}</p>
                       )}
                       <a href={r.metadata.cover_url} target="_blank" rel="noreferrer"
-                        className="text-xs text-indigo-400 hover:underline">Open image ↗</a>
+                        className="text-xs text-indigo-600 hover:underline">Open image ↗</a>
                     </>
-                  ) : <p className="text-xs text-gray-600">Not generated</p>}
+                  ) : <p className="text-xs text-gray-400">Not generated</p>}
                 </div>
 
                 {/* Full Audio — one player per language */}
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">🔊 Full Audio</p>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">🔊 Full Audio</p>
                   {r?.audio && Object.keys(r.audio).length > 0 ? (
                     <div className="space-y-3">
                       {Object.entries(r.audio).map(([key, a]) => {
@@ -457,46 +486,46 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                           <div key={key}>
                             <div className="flex items-center gap-2 mb-1">
                               <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                                lang === 'AR' ? 'bg-emerald-900/40 text-emerald-300' : 'bg-indigo-900/40 text-indigo-300'
+                                lang === 'AR' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                               }`}>{lang}</span>
                               {a.duration && <span className="text-xs text-gray-500">{a.duration}</span>}
                             </div>
                             <audio controls src={a.url} className="w-full" style={{ accentColor: '#6366f1' }} />
                             <a href={a.url} target="_blank" rel="noreferrer"
-                              className="text-[11px] text-indigo-400 hover:underline mt-1 inline-block">Download MP3 ↗</a>
+                              className="text-[11px] text-indigo-600 hover:underline mt-1 inline-block">Download MP3 ↗</a>
                           </div>
                         )
                       })}
                     </div>
-                  ) : <p className="text-xs text-gray-600">Not generated</p>}
+                  ) : <p className="text-xs text-gray-400">Not generated</p>}
                 </div>
 
                 {/* Mind Map */}
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">🗺 Mind Map</p>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">🗺 Mind Map</p>
                   {r.mindmap?.url ? (
                     <>
-                      <div className="aspect-video bg-gray-800 rounded-lg mb-2 overflow-hidden">
+                      <div className="aspect-video bg-gray-100 rounded-lg mb-2 overflow-hidden">
                         <iframe src={r.mindmap.url} title="Mind map" className="w-full h-full border-0" />
                       </div>
                       <a href={r.mindmap.url} target="_blank" rel="noreferrer"
-                        className="text-xs text-indigo-400 hover:underline">Open ↗</a>
+                        className="text-xs text-indigo-600 hover:underline">Open ↗</a>
                     </>
-                  ) : <p className="text-xs text-gray-600">Not generated</p>}
+                  ) : <p className="text-xs text-gray-400">Not generated</p>}
                 </div>
 
                 {/* EPUB */}
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">📚 EPUB</p>
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">📚 EPUB</p>
                   {epubUrl ? (
                     <div className="flex flex-col gap-3">
-                      <div className="flex items-center gap-3 p-3 bg-gray-800 rounded-lg">
+                      <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-100">
                         <svg className="w-8 h-8 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
                             d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
                         </svg>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm text-gray-200 font-medium truncate">
+                          <p className="text-sm text-gray-800 font-medium truncate">
                             {epubUrl.split('/').pop() ?? 'book.epub'}
                           </p>
                           <p className="text-xs text-gray-500 truncate mt-0.5">{epubUrl}</p>
@@ -513,7 +542,7 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                           Preview
                         </button>
                         <a href={epubUrl} target="_blank" rel="noreferrer"
-                          className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-medium transition-colors border border-gray-700">
+                          className="flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors border border-gray-200">
                           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                             <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
@@ -521,13 +550,13 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                         </a>
                       </div>
                     </div>
-                  ) : <p className="text-xs text-gray-600">Not generated</p>}
+                  ) : <p className="text-xs text-gray-400">Not generated</p>}
                 </div>
 
                 {/* Video (full width if present) */}
                 {videoUrl && (
-                  <div className="col-span-2 bg-gray-900 border border-gray-800 rounded-xl p-4">
-                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
+                  <div className="col-span-2 bg-white border border-gray-200 rounded-xl p-4">
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
                       🎬 Video
                       {videoEntry && <span className="normal-case text-gray-600 ml-1">({videoEntry[0]})</span>}
                     </p>
@@ -540,7 +569,7 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                       {videoEntry?.[1]?.size_mb && <span>Size: {videoEntry[1].size_mb.toFixed(1)} MB</span>}
                       {videoEntry?.[1]?.provider && <span>Provider: {videoEntry[1].provider}</span>}
                       <a href={videoUrl} target="_blank" rel="noreferrer"
-                        className="text-indigo-400 hover:underline ml-auto">Download ↗</a>
+                        className="text-indigo-600 hover:underline ml-auto">Download ↗</a>
                     </div>
                   </div>
                 )}
@@ -552,13 +581,13 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
             {chaptersWithAudio && chaptersWithAudio.some(ch => ch.audio_en || ch.audio_ar) && (() => {
               const audioChapters = chaptersWithAudio.filter(ch => ch.audio_en || ch.audio_ar)
               return (
-                <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
+                <div className="bg-white border border-gray-200 rounded-xl p-4">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
                     Chapter Audio ({audioChapters.length})
                   </p>
                   <div className="space-y-3 max-h-96 overflow-auto">
                     {audioChapters.map(ch => (
-                      <div key={ch.index} className="border-b border-gray-800 pb-3 last:border-0">
+                      <div key={ch.index} className="border-b border-gray-100 pb-3 last:border-0">
                         <p className="text-sm text-gray-300 mb-2">{ch.title}</p>
                         {ch.audio_en && (
                           <audio controls src={ch.audio_en} className="w-full" style={{ accentColor: '#6366f1' }} />
@@ -575,25 +604,25 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
 
             {/* Full summaries — one card per language (original + translated) */}
             {r?.summaries && Object.entries(r.summaries).map(([key, s]) => (
-              <div key={key} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div key={key} className="bg-white border border-gray-200 rounded-xl p-4">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-2">
-                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Summary</p>
+                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">Summary</p>
                     <span className={`text-[10px] px-1.5 py-0.5 rounded font-mono ${
-                      s.language === 'ar' ? 'bg-emerald-900/40 text-emerald-300' : 'bg-indigo-900/40 text-indigo-300'
+                      s.language === 'ar' ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-indigo-50 text-indigo-700 border border-indigo-200'
                     }`}>
                       {(s.language || 'en').toUpperCase()}
                     </span>
                     {/* @ts-expect-error translated is an extra runtime flag */}
                     {s.translated && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-300">translated</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-50 text-purple-700 border border-purple-200">translated</span>
                     )}
                   </div>
-                  <span className="text-xs text-gray-600">{s.word_count} words · {s.style}</span>
+                  <span className="text-xs text-gray-400">{s.word_count} words · {s.style}</span>
                 </div>
                 <p
                   dir={s.language === 'ar' ? 'rtl' : 'ltr'}
-                  className={`text-sm text-gray-200 leading-relaxed whitespace-pre-wrap ${
+                  className={`text-sm text-gray-700 leading-relaxed whitespace-pre-wrap ${
                     s.language === 'ar' ? 'font-arabic' : ''
                   }`}
                 >
@@ -604,30 +633,30 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
 
             {/* Chapters */}
             {r?.chapters && r.chapters.length > 0 && (
-              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
                   Chapters ({r.chapters.length})
                 </p>
                 <div className="space-y-1 max-h-96 overflow-auto">
                   {r.chapters.map(ch => (
                     <details key={ch.index} className="group">
-                      <summary className="flex items-center justify-between cursor-pointer py-2 px-3 rounded-lg hover:bg-gray-800 text-sm text-gray-300">
+                      <summary className="flex items-center justify-between cursor-pointer py-2 px-3 rounded-lg hover:bg-gray-50 text-sm text-gray-700">
                         <span className="font-medium">{ch.title}</span>
                         <div className="flex items-center gap-3">
                           <span className="text-xs text-gray-500">~{ch.read_time_min} min</span>
                           {ch.audio_en && (
                             <a href={ch.audio_en} target="_blank" rel="noreferrer"
                               onClick={e => e.stopPropagation()}
-                              className="text-xs text-indigo-400 hover:underline">EN ↗</a>
+                              className="text-xs text-indigo-600 hover:underline">EN ↗</a>
                           )}
                           {ch.audio_ar && (
                             <a href={ch.audio_ar} target="_blank" rel="noreferrer"
                               onClick={e => e.stopPropagation()}
-                              className="text-xs text-indigo-400 hover:underline">AR ↗</a>
+                              className="text-xs text-indigo-600 hover:underline">AR ↗</a>
                           )}
                         </div>
                       </summary>
-                      <div className="px-3 pb-3 text-xs text-gray-400 leading-relaxed">
+                      <div className="px-3 pb-3 text-xs text-gray-500 leading-relaxed">
                         {ch.summary}
                       </div>
                     </details>
@@ -636,22 +665,10 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
               </div>
             )}
 
-            {/* Errors */}
-            {r?.errors && Object.keys(r.errors).length > 0 && (
-              <div className="bg-red-950/30 border border-red-900/50 rounded-xl p-4">
-                <p className="text-xs font-medium text-red-400 uppercase tracking-wide mb-2">Step Errors</p>
-                {Object.entries(r.errors).map(([step, msg]) => (
-                  <p key={step} className="text-xs text-red-300">
-                    <span className="font-medium">{step}:</span> {msg}
-                  </p>
-                ))}
-              </div>
-            )}
-
             {/* Raw JSON */}
-            <details className="bg-gray-900 border border-gray-800 rounded-xl p-4">
-              <summary className="text-xs text-gray-400 cursor-pointer">View full output JSON</summary>
-              <pre className="mt-3 text-xs text-gray-400 overflow-auto max-h-96">
+            <details className="bg-white border border-gray-200 rounded-xl p-4">
+              <summary className="text-xs text-gray-500 cursor-pointer">View full output JSON</summary>
+              <pre className="mt-3 text-xs text-gray-600 bg-gray-50 p-3 rounded-lg overflow-auto max-h-96">
                 {JSON.stringify(selected, null, 2)}
               </pre>
             </details>

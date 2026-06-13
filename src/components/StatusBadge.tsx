@@ -1,12 +1,12 @@
 type Status = 'queued' | 'running' | 'done' | 'partial' | 'failed' | 'cancelled'
 
 const styles: Record<Status, string> = {
-  queued:    'bg-yellow-900/50 text-yellow-300 border border-yellow-700',
-  running:   'bg-blue-900/50   text-blue-300   border border-blue-700   animate-pulse',
-  done:      'bg-green-900/50  text-green-300  border border-green-700',
-  partial:   'bg-orange-900/50 text-orange-300 border border-orange-700',
-  failed:    'bg-red-900/50    text-red-300    border border-red-700',
-  cancelled: 'bg-gray-800      text-gray-400   border border-gray-700',
+  queued:    'bg-yellow-50 text-yellow-700 border border-yellow-200',
+  running:   'bg-blue-50   text-blue-700   border border-blue-200   animate-pulse',
+  done:      'bg-green-50  text-green-700  border border-green-200',
+  partial:   'bg-orange-50 text-orange-700 border border-orange-200',
+  failed:    'bg-red-50    text-red-700    border border-red-200',
+  cancelled: 'bg-gray-100  text-gray-500   border border-gray-200',
 }
 
 const icons: Record<Status, string> = {

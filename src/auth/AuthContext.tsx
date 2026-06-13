@@ -67,14 +67,32 @@ const defaultValue: AuthContextValue = {
 const AuthContext = createContext<AuthContextValue>(defaultValue)
 
 
+// ── Admin-verdict cache (localStorage) ───────────────────────────────────────
+// The backend's /api/auth/me call decides is_admin, but it can be slow (JWKS
+// verification + DB lookup). We cache the last verdict per user id so a page
+// reload renders the dashboard INSTANTLY instead of showing the "Verifying
+// admin access…" spinner for ~20s, then re-validate in the background.
+const ADMIN_CACHE_PREFIX = 'sob.isAdmin.'
+
+function readCachedAdmin(userId: string): boolean | null {
+  try {
+    const v = localStorage.getItem(ADMIN_CACHE_PREFIX + userId)
+    return v === null ? null : v === '1'
+  } catch { return null }
+}
+
+function writeCachedAdmin(userId: string, isAdmin: boolean) {
+  try { localStorage.setItem(ADMIN_CACHE_PREFIX + userId, isAdmin ? '1' : '0') } catch { /* ignore */ }
+}
+
 function supabaseUserToAuthUser(u: User | null | undefined): AuthUser | null {
   if (!u) return null
   return {
     id:       u.id,
     email:    u.email ?? '',
-    // is_admin can't be derived client-side — the backend decides via
-    // ADMIN_EMAILS.  We hit /api/auth/me below to fetch the verdict.
-    is_admin: false,
+    // Seed is_admin from the cached verdict so the UI doesn't flash the
+    // "verifying" gate on reload. The /api/auth/me call below confirms it.
+    is_admin: readCachedAdmin(u.id) ?? false,
   }
 }
 
@@ -124,13 +142,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return
     }
     let cancelled = false
-    setAdminChecking(true)
+    // Only block the UI with the "verifying" gate when we have NO cached
+    // verdict for this user. If we do, we render immediately and revalidate
+    // silently in the background.
+    const hasCached = readCachedAdmin(session.user.id) !== null
+    setAdminChecking(!hasCached)
+
+    // Hard timeout so a slow/hanging backend can't freeze the gate forever.
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 8000)
 
     ;(async () => {
       try {
         const apiBase = (import.meta.env.VITE_API_URL ?? '').replace(/\/+$/, '')
         const res = await fetch(`${apiBase}/api/auth/me`, {
           headers: { Authorization: `Bearer ${session.access_token}` },
+          signal: controller.signal,
         })
         if (!res.ok) {
           // Don't swallow silently — admins debugging "Admin access required"
@@ -144,17 +171,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
         const me = await res.json() as { id: string; email: string; is_admin: boolean }
         if (!cancelled) {
+          writeCachedAdmin(me.id, !!me.is_admin)
           setUser({ id: me.id, email: me.email, is_admin: !!me.is_admin })
         }
       } catch (err) {
-        console.warn('[auth] /api/auth/me network error:', err)
+        if ((err as Error)?.name === 'AbortError') {
+          console.warn('[auth] /api/auth/me timed out after 8s — using cached admin verdict.')
+        } else {
+          console.warn('[auth] /api/auth/me network error:', err)
+        }
       } finally {
+        clearTimeout(timeout)
         if (!cancelled) setAdminChecking(false)
       }
     })()
 
     return () => {
       cancelled = true
+      clearTimeout(timeout)
+      controller.abort()
       setAdminChecking(false)
     }
   }, [disabled, session])
@@ -173,6 +208,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     async logout() {
       if (!supabase) return
+      if (user) { try { localStorage.removeItem(ADMIN_CACHE_PREFIX + user.id) } catch { /* ignore */ } }
       await supabase.auth.signOut()
       setSession(null)
       setUser(null)
