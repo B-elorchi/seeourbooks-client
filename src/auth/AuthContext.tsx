@@ -20,10 +20,14 @@ import type { Session, User } from '@supabase/supabase-js'
 
 import { authEnabled, supabase } from './supabase'
 
+export type AppRole = 'admin' | 'editor' | 'viewer'
+
 export interface AuthUser {
   id:       string
   email:    string
   is_admin: boolean
+  /** Application role from the backend (app_users.role). */
+  app_role: AppRole
 }
 
 interface AuthContextValue {
@@ -48,7 +52,7 @@ interface AuthContextValue {
   signInWithOAuth: (provider: 'google' | 'github' | 'azure') => Promise<{ error?: string }>
 }
 
-const DEV_USER: AuthUser = { id: 'dev', email: 'dev@local', is_admin: true }
+const DEV_USER: AuthUser = { id: 'dev', email: 'dev@local', is_admin: true, app_role: 'admin' }
 
 const noop = async (): Promise<{ error?: string }> => ({})
 
@@ -73,6 +77,7 @@ const AuthContext = createContext<AuthContextValue>(defaultValue)
 // reload renders the dashboard INSTANTLY instead of showing the "Verifying
 // admin access…" spinner for ~20s, then re-validate in the background.
 const ADMIN_CACHE_PREFIX = 'sob.isAdmin.'
+const ROLE_CACHE_PREFIX  = 'sob.role.'
 
 function readCachedAdmin(userId: string): boolean | null {
   try {
@@ -81,8 +86,25 @@ function readCachedAdmin(userId: string): boolean | null {
   } catch { return null }
 }
 
-function writeCachedAdmin(userId: string, isAdmin: boolean) {
-  try { localStorage.setItem(ADMIN_CACHE_PREFIX + userId, isAdmin ? '1' : '0') } catch { /* ignore */ }
+function readCachedRole(userId: string): AppRole | null {
+  try {
+    const v = localStorage.getItem(ROLE_CACHE_PREFIX + userId)
+    return v === 'admin' || v === 'editor' || v === 'viewer' ? v : null
+  } catch { return null }
+}
+
+function writeCachedVerdict(userId: string, isAdmin: boolean, role: AppRole) {
+  try {
+    localStorage.setItem(ADMIN_CACHE_PREFIX + userId, isAdmin ? '1' : '0')
+    localStorage.setItem(ROLE_CACHE_PREFIX + userId, role)
+  } catch { /* ignore */ }
+}
+
+function clearCachedVerdict(userId: string) {
+  try {
+    localStorage.removeItem(ADMIN_CACHE_PREFIX + userId)
+    localStorage.removeItem(ROLE_CACHE_PREFIX + userId)
+  } catch { /* ignore */ }
 }
 
 function supabaseUserToAuthUser(u: User | null | undefined): AuthUser | null {
@@ -90,9 +112,10 @@ function supabaseUserToAuthUser(u: User | null | undefined): AuthUser | null {
   return {
     id:       u.id,
     email:    u.email ?? '',
-    // Seed is_admin from the cached verdict so the UI doesn't flash the
-    // "verifying" gate on reload. The /api/auth/me call below confirms it.
+    // Seed from the cached verdict so the UI doesn't flash the "verifying"
+    // gate on reload. The /api/auth/me call below confirms it.
     is_admin: readCachedAdmin(u.id) ?? false,
+    app_role: readCachedRole(u.id) ?? 'viewer',
   }
 }
 
@@ -169,10 +192,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           )
           return
         }
-        const me = await res.json() as { id: string; email: string; is_admin: boolean }
+        const me = await res.json() as { id: string; email: string; is_admin: boolean; app_role?: AppRole }
         if (!cancelled) {
-          writeCachedAdmin(me.id, !!me.is_admin)
-          setUser({ id: me.id, email: me.email, is_admin: !!me.is_admin })
+          const role: AppRole = me.app_role ?? (me.is_admin ? 'admin' : 'viewer')
+          writeCachedVerdict(me.id, !!me.is_admin, role)
+          setUser({ id: me.id, email: me.email, is_admin: !!me.is_admin, app_role: role })
         }
       } catch (err) {
         if ((err as Error)?.name === 'AbortError') {
@@ -208,7 +232,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     async logout() {
       if (!supabase) return
-      if (user) { try { localStorage.removeItem(ADMIN_CACHE_PREFIX + user.id) } catch { /* ignore */ } }
+      if (user) clearCachedVerdict(user.id)
       await supabase.auth.signOut()
       setSession(null)
       setUser(null)

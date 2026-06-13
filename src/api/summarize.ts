@@ -1,4 +1,4 @@
-import { apiUrl } from './client'
+import { apiFetch } from './client'
 
 export type SseEvent =
   | { event: 'cached';     data: { summary: string; word_count: number } }
@@ -19,7 +19,7 @@ export function streamSummary(
 ): () => void {
   const controller = new AbortController()
 
-  fetch(apiUrl('/api/summarize'), {
+  apiFetch('/api/summarize', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ book_id: bookId, length, style, language }),

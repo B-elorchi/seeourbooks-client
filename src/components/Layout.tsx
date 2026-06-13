@@ -5,6 +5,7 @@ import { useAuth } from '../auth/AuthContext'
 const mainNav = [
   { to: '/admin',          label: 'Dashboard',  icon: 'ti-layout-dashboard', exact: true },
   { to: '/admin/jobs',     label: 'Jobs',       icon: 'ti-list-check'   },
+  { to: '/pipeline',       label: 'Job Details', icon: 'ti-subtask'     },
   { to: '/admin/books',    label: 'Books',      icon: 'ti-book'         },
   { to: '/documents',      label: 'Documents',  icon: 'ti-file-upload'  },
 ]
@@ -19,11 +20,12 @@ const configNav = [
   { to: '/admin/settings', label: 'Settings',  icon: 'ti-settings'     },
 ]
 
-// Non-admin users only see pipeline/summary
+// Non-admin users (editor/viewer) see a scoped, cost-free view of their own work
 const publicNav = [
-  { to: '/',          label: 'Summary',    icon: 'ti-sparkles'    },
-  { to: '/pipeline',  label: 'Jobs',       icon: 'ti-activity'    },
-  { to: '/documents', label: 'Documents',  icon: 'ti-file-upload' },
+  { to: '/',          label: 'Dashboard',     icon: 'ti-layout-dashboard', exact: true },
+  { to: '/summary',   label: 'Summary',       icon: 'ti-sparkles'    },
+  { to: '/my-jobs',   label: 'My Jobs',       icon: 'ti-activity'    },
+  { to: '/documents', label: 'My Documents',  icon: 'ti-file-upload' },
 ]
 
 function NavItem({ to, label, icon, exact }: { to: string; label: string; icon: string; exact?: boolean }) {

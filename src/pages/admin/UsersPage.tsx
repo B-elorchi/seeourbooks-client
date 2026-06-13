@@ -70,6 +70,7 @@ export default function UsersPage() {
   // Create user form
   const [email,    setEmail]    = useState('')
   const [name,     setName]     = useState('')
+  const [password, setPassword] = useState('')
   const [role,     setRole]     = useState<'admin' | 'editor' | 'viewer'>('viewer')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
@@ -103,9 +104,14 @@ export default function UsersPage() {
       await api('/api/users', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ email: email.trim(), name: name.trim() || null, role }),
+        body:    JSON.stringify({
+          email:    email.trim(),
+          name:     name.trim() || null,
+          role,
+          password: password.trim() || null,
+        }),
       })
-      setEmail(''); setName(''); setRole('viewer')
+      setEmail(''); setName(''); setPassword(''); setRole('viewer')
       await load()
     } catch (e) {
       setCreateError(e instanceof Error ? e.message : 'Failed')
@@ -205,6 +211,14 @@ export default function UsersPage() {
                     <option value="editor">editor</option>
                     <option value="admin">admin</option>
                   </select>
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="block text-xs text-gray-400 mb-1">
+                    Password <span className="text-gray-400">(optional — set one to create a login the user can sign in with)</span>
+                  </label>
+                  <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Leave blank for a metadata-only user"
+                    autoComplete="new-password"
+                    className="w-full bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:border-indigo-400 placeholder:text-gray-400" />
                 </div>
               </div>
               <div className="flex items-center gap-3">
