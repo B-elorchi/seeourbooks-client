@@ -199,6 +199,8 @@ const PROVIDER_GROUPS: Array<{
     rows: [
       { key: 'WATERMARK_TEXT',     label: 'Watermark text (stamped on covers, audio ID3, mindmaps)', options: [], type: 'text', placeholder: 'SeeOurBook.com' },
       { key: 'WATERMARK_POSITION', label: 'Cover image watermark position',                           options: ['bottom-right', 'bottom-left', 'top-right', 'top-left'] },
+      { key: 'AUDIO_WATERMARK_TEXT_EN', label: 'Spoken audio intro (EN) — read at the start of audio', options: [], type: 'text', placeholder: 'SeeOurBook presents' },
+      { key: 'AUDIO_WATERMARK_TEXT_AR', label: 'Spoken audio intro (AR) — read at the start of audio', options: [], type: 'text', placeholder: 'Seeourbook تقدم لكم' },
     ],
   },
 ]

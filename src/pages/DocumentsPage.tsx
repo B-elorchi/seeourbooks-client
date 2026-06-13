@@ -64,7 +64,7 @@ export default function DocumentsPage() {
   const [summary,    setSummary]    = useState<DocumentSummary | null>(null)
   const [structured, setStructured] = useState<DocumentStructured | null>(null)
   const [pages,      setPages]      = useState<DocumentTextResponse | null>(null)
-  const [tab,        setTab]        = useState<'summary' | 'structured' | 'pages'>('summary')
+  const [tab,        setTab]        = useState<'summary' | 'read' | 'structured' | 'pages'>('summary')
   const [retrying,   setRetrying]   = useState(false)
   const [retryMsg,   setRetryMsg]   = useState<string | null>(null)
 
@@ -373,6 +373,7 @@ export default function DocumentsPage() {
                 <div className="flex gap-0.5 border-b border-gray-200 bg-gray-50">
                   {([
                     ['summary',    'Summary',         !!summary],
+                    ['read',       'Read',            !!pages?.pages.length],
                     ['structured', 'Structured JSON', !!structured],
                     ['pages',      `Pages (${pages?.pages.length ?? 0})`, !!pages?.pages.length],
                   ] as const).map(([key, label, ready]) => (
@@ -411,6 +412,17 @@ export default function DocumentsPage() {
                       </div>
                     ) : (
                       <p className="text-xs text-gray-400">Summary not generated yet.</p>
+                    )
+                  )}
+
+                  {tab === 'read' && (
+                    pages?.pages.length ? (
+                      <BookReader
+                        pages={pages.pages}
+                        rtl={(status?.language ?? '').toLowerCase().startsWith('ar')}
+                      />
+                    ) : (
+                      <p className="text-xs text-gray-400">No extracted text yet.</p>
                     )
                   )}
 
@@ -500,6 +512,86 @@ function Field({ label, value }: { label: string; value: string }) {
     <div>
       <p className="text-[11px] text-gray-400 uppercase tracking-wide mb-1">{label}</p>
       <p className="text-sm text-gray-700">{value}</p>
+    </div>
+  )
+}
+
+/**
+ * Book-style reader for the extracted text.
+ *
+ * Renders one PDF page at a time as clean, typeset prose (serif column,
+ * comfortable measure) with prev/next paging — a reading experience instead of
+ * the raw page dump. Supports RTL for Arabic documents.
+ */
+function BookReader({ pages, rtl }: { pages: { page: number; content: string }[]; rtl: boolean }) {
+  const [idx, setIdx] = useState(0)
+  const total = pages.length
+  // Clamp if the page list shrinks between renders.
+  const safeIdx = Math.min(idx, total - 1)
+  const current = pages[safeIdx]
+
+  // Split into paragraphs on blank lines so we get real spacing, not one blob.
+  const paragraphs = useMemo(
+    () => (current?.content ?? '').split(/\n\s*\n/).map(p => p.trim()).filter(Boolean),
+    [current],
+  )
+
+  const go = (delta: number) => setIdx(i => Math.max(0, Math.min(total - 1, i + delta)))
+
+  return (
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="flex items-center justify-between">
+        <button
+          onClick={() => go(-1)}
+          disabled={safeIdx === 0}
+          className="px-3 py-1.5 text-xs rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+          ← Previous
+        </button>
+        <div className="flex items-center gap-2 text-xs text-gray-500">
+          <span>Page</span>
+          <input
+            type="number"
+            min={1}
+            max={total}
+            value={safeIdx + 1}
+            onChange={e => {
+              const n = parseInt(e.target.value, 10)
+              if (!Number.isNaN(n)) setIdx(Math.max(0, Math.min(total - 1, n - 1)))
+            }}
+            className="w-14 text-center bg-gray-100 border border-gray-200 rounded-md px-1.5 py-1 text-gray-800" />
+          <span>of {total} <span className="text-gray-400">(PDF p.{current?.page})</span></span>
+        </div>
+        <button
+          onClick={() => go(1)}
+          disabled={safeIdx >= total - 1}
+          className="px-3 py-1.5 text-xs rounded-md border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed">
+          Next →
+        </button>
+      </div>
+
+      {/* Page sheet */}
+      <div className="bg-[#fdfdfb] border border-gray-200 rounded-xl shadow-sm mx-auto max-w-2xl px-8 sm:px-12 py-10 min-h-[60vh]">
+        <article
+          dir={rtl ? 'rtl' : 'ltr'}
+          className="prose-reader"
+          style={{
+            fontFamily: 'Georgia, "Times New Roman", serif',
+            fontSize: '1.05rem',
+            lineHeight: 1.9,
+            color: '#2d2d2d',
+            textAlign: rtl ? 'right' : 'justify',
+          }}
+        >
+          {paragraphs.length ? paragraphs.map((p, i) => (
+            <p key={i} style={{ margin: '0 0 1.1em', whiteSpace: 'pre-wrap' }}>{p}</p>
+          )) : (
+            <p className="text-gray-400" style={{ fontFamily: 'inherit' }}>(this page is blank)</p>
+          )}
+        </article>
+      </div>
+
+      <p className="text-center text-[11px] text-gray-400">— {current?.page} —</p>
     </div>
   )
 }
