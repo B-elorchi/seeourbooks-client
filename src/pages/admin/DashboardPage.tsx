@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
-  XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+  XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
   useAdminMetrics, useAdminCosts, useAdminJobs, useUserCount,
@@ -101,7 +101,7 @@ export default function DashboardPage() {
   // Status pie data
   const statusPie = metrics
     ? Object.entries(STATUS_COLORS)
-        .map(([k, c]) => ({ name: k, value: (metrics as Record<string,number>)[k] ?? 0, color: c }))
+        .map(([k, c]) => ({ name: k, value: ((metrics as unknown) as Record<string, number>)[k] ?? 0, color: c }))
         .filter(d => d.value > 0)
     : []
 
