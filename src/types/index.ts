@@ -100,9 +100,11 @@ export interface PipelineResult {
   mindmap?:       { url: string; data?: unknown }
   epub?:          Record<string, { url: string }> | null  // e.g. {"enriched_en": {"url": "..."}}
   video?:         Record<string, VideoAsset> | null       // e.g. {"summary_en": {url, duration_seconds, ...}}
-  chapters:       ChapterResult[]
-  errors:         Record<string, string>
-  files?:         FilesAsset   // Legacy field for older jobs
+  chapters:              ChapterResult[]
+  errors:                Record<string, string>
+  files?:                FilesAsset   // Legacy field for older jobs
+  extracted_pages?:      { page: number; content: string }[]
+  page_count_extracted?: number
 }
 
 export interface VideoAsset {

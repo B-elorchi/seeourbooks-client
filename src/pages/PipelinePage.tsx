@@ -1,4 +1,4 @@
-import { useState, lazy, Suspense } from 'react'
+import { useState, useRef, lazy, Suspense } from 'react'
 import { usePipelineJobs, useJobStatus, useInvalidatePipeline } from '../hooks/usePipeline'
 import { retryJob, rerunSteps, cancelJob } from '../api/admin'
 import type { PipelineResult } from '../types'
@@ -23,8 +23,152 @@ const STEP_COLORS: Record<string, string> = {
   running: 'bg-blue-50 text-blue-600 border-blue-200 animate-pulse',
 }
 
+const AR_RE = /[؀-ۿݐ-ݿﭐ-﷿ﹰ-﻿]/
+
+function isArabic(text: string) {
+  return AR_RE.test(text)
+}
+
+// Split page content into paragraphs, filter obvious OCR artifacts (very short
+// lines with no Arabic or meaningful Latin — e.g. "Gd", "Ob", "Ble").
+function parseParagraphs(content: string): string[] {
+  return content
+    .split(/\n{2,}/)
+    .map(s => s.replace(/\n/g, ' ').trim())
+    .filter(s => {
+      if (!s) return false
+      // Keep if it has Arabic characters
+      if (AR_RE.test(s)) return true
+      // Keep Latin paragraphs with 4+ real words
+      const words = s.split(/\s+/).filter(w => /[a-zA-Z0-9@.]{2,}/.test(w))
+      return words.length >= 3
+    })
+}
+
+function ExtractedTextReader({ pages, pageCount }: { pages: { page: number; content: string }[]; pageCount?: number }) {
+  const [current, setCurrent] = useState(0)
+  const [inputVal, setInputVal] = useState('1')
+  const topRef = useRef<HTMLDivElement>(null)
+  const total = pages.length
+  const p = pages[current]
+  const paragraphs = p ? parseParagraphs(p.content) : []
+  const pageIsAr = paragraphs.length > 0 && isArabic(paragraphs[0])
+  const totalChars = pages.reduce((acc, pg) => acc + pg.content.length, 0)
+
+  function goTo(idx: number) {
+    const clamped = Math.max(0, Math.min(total - 1, idx))
+    setCurrent(clamped)
+    setInputVal(String(clamped + 1))
+    topRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  function copyAll() {
+    navigator.clipboard.writeText(pages.map(pg => pg.content).join('\n\n'))
+  }
+
+  return (
+    <div ref={topRef} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 bg-gray-50">
+        <div className="text-xs text-gray-500">
+          <span className="font-medium text-gray-700">{pageCount ?? total} pages extracted</span>
+          <span className="mx-1.5">·</span>
+          {totalChars.toLocaleString()} characters
+        </div>
+        <button onClick={copyAll}
+          className="text-xs text-indigo-600 hover:text-indigo-500 transition-colors font-medium">
+          Copy all text
+        </button>
+      </div>
+
+      {/* Page label */}
+      <div className="flex items-center gap-2 px-6 pt-5 pb-3">
+        <span className="text-[11px] font-semibold text-gray-400 uppercase tracking-widest">
+          Page {p?.page ?? current + 1}
+        </span>
+        {pageIsAr && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200 font-mono">AR</span>
+        )}
+      </div>
+
+      {/* Page content — paragraph-by-paragraph with per-paragraph RTL */}
+      <div className="px-6 pb-6 min-h-48 space-y-4">
+        {paragraphs.length === 0 ? (
+          <p className="text-gray-400 italic text-sm">Empty page</p>
+        ) : paragraphs.map((para, i) => {
+          const ar = isArabic(para)
+          return (
+            <p
+              key={i}
+              dir={ar ? 'rtl' : 'ltr'}
+              className={`text-sm text-gray-800 leading-[1.9] ${ar ? 'font-arabic text-right' : 'text-left'}`}
+            >
+              {para}
+            </p>
+          )
+        })}
+      </div>
+
+      {/* Navigation */}
+      <div className="flex items-center justify-between px-6 py-3 border-t border-gray-100 bg-gray-50">
+        <button
+          onClick={() => goTo(current - 1)}
+          disabled={current === 0}
+          className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          ← Prev
+        </button>
+        <div className="flex items-center gap-1.5 text-xs text-gray-500">
+          <span>Page</span>
+          <input
+            type="number" min={1} max={total}
+            value={inputVal}
+            onChange={e => setInputVal(e.target.value)}
+            onBlur={() => goTo(Number(inputVal) - 1)}
+            onKeyDown={e => e.key === 'Enter' && goTo(Number(inputVal) - 1)}
+            className="w-12 text-center px-1 py-0.5 border border-gray-200 rounded text-xs"
+          />
+          <span>of {total}</span>
+        </div>
+        <button
+          onClick={() => goTo(current + 1)}
+          disabled={current >= total - 1}
+          className="px-3 py-1.5 text-xs font-medium rounded-lg border border-gray-200 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+        >
+          Next →
+        </button>
+      </div>
+    </div>
+  )
+}
+
+type SourceFilter = 'all' | 'pdf_upload' | 'catalog' | 'custom_json'
+
+const SOURCE_TABS: { key: SourceFilter; label: string; icon: string }[] = [
+  { key: 'all',         label: 'All',     icon: '📋' },
+  { key: 'pdf_upload',  label: 'PDF',     icon: '📄' },
+  { key: 'catalog',     label: 'Catalog', icon: '📚' },
+  { key: 'custom_json', label: 'JSON',    icon: '{}' },
+]
+
+const SOURCE_BADGE: Record<string, string> = {
+  pdf_upload:  'bg-blue-50 text-blue-700 border-blue-200',
+  catalog:     'bg-violet-50 text-violet-700 border-violet-200',
+  custom_json: 'bg-amber-50 text-amber-700 border-amber-200',
+}
+const SOURCE_LABEL: Record<string, string> = {
+  pdf_upload:  'PDF',
+  catalog:     'Catalog',
+  custom_json: 'JSON',
+}
+
+function jobSource(job: { input?: { source?: string } }): string {
+  return job.input?.source ?? 'catalog'
+}
+
 export default function PipelinePage() {
   const { data: jobs = [], isLoading: loading } = usePipelineJobs()
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [retrying,   setRetrying]   = useState(false)
   const [retryMsg,   setRetryMsg]   = useState<string | null>(null)
@@ -111,6 +255,10 @@ export default function PipelinePage() {
     })
   }
 
+  const filteredJobs = sourceFilter === 'all'
+    ? jobs
+    : jobs.filter(j => jobSource(j as { input?: { source?: string } }) === sourceFilter)
+
   // Guard: result may be a raw JSON string on jobs stored before the JSONB codec fix.
   const rawResult = selected?.result
   const r: PipelineResult | undefined = (() => {
@@ -146,38 +294,71 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
     <div className="flex h-full">
       {/* ── Job list sidebar ─────────────────────────────────────────────── */}
       <div className="w-80 shrink-0 border-r border-gray-200 flex flex-col bg-white">
-        <div className="p-4 border-b border-gray-200">
-          <h2 className="text-sm font-semibold text-gray-900">Pipeline Jobs</h2>
-          <div className="flex gap-3 mt-2 text-xs text-gray-500">
+        {/* Header */}
+        <div className="px-4 pt-4 pb-2 border-b border-gray-200">
+          <h2 className="text-sm font-semibold text-gray-900 mb-2">Pipeline Jobs</h2>
+          <div className="flex gap-2 text-xs text-gray-500 mb-3">
             <span className="text-blue-600">{jobs.filter(j => j.status === 'running').length} running</span>
             <span className="text-green-600">{jobs.filter(j => j.status === 'done').length} done</span>
             <span className="text-red-600">{jobs.filter(j => j.status === 'failed').length} failed</span>
           </div>
+          {/* Source filter tabs */}
+          <div className="grid grid-cols-4 gap-1">
+            {SOURCE_TABS.map(tab => {
+              const count = tab.key === 'all'
+                ? jobs.length
+                : jobs.filter(j => jobSource(j as { input?: { source?: string } }) === tab.key).length
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setSourceFilter(tab.key)}
+                  className={`flex flex-col items-center py-1.5 rounded-md text-[10px] font-medium transition-colors leading-tight ${
+                    sourceFilter === tab.key
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                  }`}
+                >
+                  <span>{tab.label}</span>
+                  <span className="opacity-70">{count}</span>
+                </button>
+              )
+            })}
+          </div>
         </div>
+
+        {/* Job list */}
         <div className="overflow-auto flex-1">
           {loading && <p className="text-xs text-gray-500 p-4">Loading…</p>}
-          {!loading && jobs.length === 0 && (
-            <p className="text-xs text-gray-400 p-4">No jobs yet.</p>
+          {!loading && filteredJobs.length === 0 && (
+            <p className="text-xs text-gray-400 p-4">No jobs in this category.</p>
           )}
-          {jobs.map(job => {
+          {filteredJobs.map(job => {
             const jr = typeof job.result === 'string'
               ? (() => { try { return JSON.parse(job.result as string) } catch { return null } })()
               : job.result
+            const src = jobSource(job as { input?: { source?: string } })
+            const srcBadge = SOURCE_BADGE[src]
+            const srcLabel = SOURCE_LABEL[src]
             return (
               <button key={job.id} onClick={() => setSelectedId(job.id)}
                 className={`w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-                  selectedId === job.id ? 'bg-gray-50' : ''
+                  selectedId === job.id ? 'bg-indigo-50' : ''
                 }`}>
-                <div className="flex items-center justify-between mb-1">
-                  <span className="text-xs font-medium text-gray-800 truncate">
+                <div className="flex items-center justify-between mb-1 gap-2">
+                  <span className="text-xs font-medium text-gray-800 truncate flex-1">
                     {jr?.metadata?.title ?? job.book_id}
                   </span>
                   <StatusBadge status={job.status} />
                 </div>
                 <div className="flex items-center gap-2 text-xs text-gray-500">
-                  <span>{jr?.metadata?.author ?? '—'}</span>
+                  {srcLabel && (
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded border font-medium ${srcBadge}`}>
+                      {srcLabel}
+                    </span>
+                  )}
+                  <span className="truncate">{jr?.metadata?.author ?? '—'}</span>
                   <span>·</span>
-                  <span>{timeAgo(job.created_at)}</span>
+                  <span className="shrink-0">{timeAgo(job.created_at)}</span>
                 </div>
               </button>
             )
@@ -662,6 +843,17 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                     </details>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Extracted text reader */}
+            {r?.extracted_pages && r.extracted_pages.length > 0 && (
+              <div>
+                <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">📄 Extracted Text</p>
+                <ExtractedTextReader
+                  pages={r.extracted_pages}
+                  pageCount={r.page_count_extracted}
+                />
               </div>
             )}
 
