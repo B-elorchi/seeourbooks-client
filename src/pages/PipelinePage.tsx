@@ -269,26 +269,9 @@ export default function PipelinePage() {
     return rawResult as PipelineResult
   })()
 
-  const summaryEntry = r?.summaries ? Object.values(r.summaries)[0] : null
-const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.epub ?? null)
+  const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.epub ?? null)
   const videoEntry   = r?.video     ? Object.entries(r.video)[0]     : null
   const videoUrl     = videoEntry?.[1]?.url ?? r?.files?.video ?? null
-
-  const chaptersWithAudio = (() => {
-    if (!r?.chapters) return r?.chapters
-    const filesChapMap: Record<number, string | undefined> = {}
-    for (const fc of (r.files?.chapters ?? [])) {
-      if (fc.audio_url) filesChapMap[fc.index] = fc.audio_url
-    }
-    const lang = summaryEntry?.language ?? 'en'
-    return r.chapters.map(ch => {
-      const audioKey = `audio_${lang}` as keyof typeof ch
-      if (ch[audioKey]) return ch
-      const fallback = filesChapMap[ch.index]
-      if (!fallback) return ch
-      return { ...ch, [audioKey]: fallback }
-    })
-  })()
 
   return (
     <div className="flex h-full">
@@ -758,31 +741,6 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
               </div>
             )}
 
-            {/* Chapter Audio */}
-            {chaptersWithAudio && chaptersWithAudio.some(ch => ch.audio_en || ch.audio_ar) && (() => {
-              const audioChapters = chaptersWithAudio.filter(ch => ch.audio_en || ch.audio_ar)
-              return (
-                <div className="bg-white border border-gray-200 rounded-xl p-4">
-                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
-                    Chapter Audio ({audioChapters.length})
-                  </p>
-                  <div className="space-y-3 max-h-96 overflow-auto">
-                    {audioChapters.map(ch => (
-                      <div key={ch.index} className="border-b border-gray-100 pb-3 last:border-0">
-                        <p className="text-sm text-gray-300 mb-2">{ch.title}</p>
-                        {ch.audio_en && (
-                          <audio controls src={ch.audio_en} className="w-full" style={{ accentColor: '#6366f1' }} />
-                        )}
-                        {ch.audio_ar && (
-                          <audio controls src={ch.audio_ar} className="w-full mt-2" style={{ accentColor: '#10b981' }} />
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )
-            })()}
-
             {/* Full summaries — one card per language (original + translated) */}
             {r?.summaries && Object.entries(r.summaries).map(([key, s]) => (
               <div key={key} className="bg-white border border-gray-200 rounded-xl p-4">
@@ -812,7 +770,9 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
               </div>
             ))}
 
-            {/* Chapters */}
+            {/* Chapters — title + read time only. Per-chapter summary text and
+                per-chapter audio are persisted in the DB for downstream use, but
+                not displayed in the client UI (only the full-book summary is). */}
             {r?.chapters && r.chapters.length > 0 && (
               <div className="bg-white border border-gray-200 rounded-xl p-4">
                 <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
@@ -820,27 +780,10 @@ const epubUrl      = r?.epub      ? Object.values(r.epub)[0]?.url  : (r?.files?.
                 </p>
                 <div className="space-y-1 max-h-96 overflow-auto">
                   {r.chapters.map(ch => (
-                    <details key={ch.index} className="group">
-                      <summary className="flex items-center justify-between cursor-pointer py-2 px-3 rounded-lg hover:bg-gray-50 text-sm text-gray-700">
-                        <span className="font-medium">{ch.title}</span>
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-gray-500">~{ch.read_time_min} min</span>
-                          {ch.audio_en && (
-                            <a href={ch.audio_en} target="_blank" rel="noreferrer"
-                              onClick={e => e.stopPropagation()}
-                              className="text-xs text-indigo-600 hover:underline">EN ↗</a>
-                          )}
-                          {ch.audio_ar && (
-                            <a href={ch.audio_ar} target="_blank" rel="noreferrer"
-                              onClick={e => e.stopPropagation()}
-                              className="text-xs text-indigo-600 hover:underline">AR ↗</a>
-                          )}
-                        </div>
-                      </summary>
-                      <div className="px-3 pb-3 text-xs text-gray-500 leading-relaxed">
-                        {ch.summary}
-                      </div>
-                    </details>
+                    <div key={ch.index} className="flex items-center justify-between py-2 px-3 rounded-lg text-sm text-gray-700">
+                      <span className="font-medium truncate">{ch.title}</span>
+                      <span className="text-xs text-gray-500 shrink-0 ml-3">~{ch.read_time_min} min</span>
+                    </div>
                   ))}
                 </div>
               </div>
