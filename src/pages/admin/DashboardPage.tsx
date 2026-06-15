@@ -88,6 +88,14 @@ function Section({ title, children, action }: { title: string; children: React.R
 
 export default function DashboardPage() {
   const [days, setDays] = useState(30)
+  const [customOpen, setCustomOpen] = useState(false)
+  const [customDays, setCustomDays] = useState('45')
+  const isPreset = DAYS_OPTIONS.includes(days)
+
+  function applyCustom() {
+    const n = Math.max(1, Math.min(365, parseInt(customDays, 10) || 0))
+    if (n > 0) { setDays(n); setCustomDays(String(n)) }
+  }
 
   const { data: jobs = [],   isLoading: jobsLoading } = useAdminJobs(100)
   const { data: metrics }                              = useAdminMetrics()
@@ -139,12 +147,32 @@ export default function DashboardPage() {
           <div className="flex items-center gap-2">
             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
               {DAYS_OPTIONS.map(d => (
-                <button key={d} onClick={() => setDays(d)}
-                  className={`px-3 py-1.5 transition-colors ${days === d ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                <button key={d} onClick={() => { setDays(d); setCustomOpen(false) }}
+                  className={`px-3 py-1.5 transition-colors ${days === d && !customOpen ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
                   {d}d
                 </button>
               ))}
+              <button onClick={() => setCustomOpen(o => !o)}
+                className={`px-3 py-1.5 transition-colors border-l border-gray-200 ${(customOpen || !isPreset) ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                {!isPreset ? `${days}d` : 'Custom'}
+              </button>
             </div>
+            {customOpen && (
+              <div className="flex items-center gap-1 text-xs">
+                <span className="text-gray-400">Last</span>
+                <input
+                  type="number" min={1} max={365} value={customDays}
+                  onChange={e => setCustomDays(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') applyCustom() }}
+                  className="w-16 border border-gray-200 rounded-md px-2 py-1 text-gray-900 focus:outline-none focus:border-indigo-400"
+                />
+                <span className="text-gray-400">days</span>
+                <button onClick={applyCustom}
+                  className="px-2.5 py-1 rounded-md bg-indigo-600 text-white hover:bg-indigo-500 transition-colors">
+                  Apply
+                </button>
+              </div>
+            )}
             <button onClick={() => invalidateAll()} disabled={jobsLoading}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:text-gray-900 hover:border-gray-300 transition-colors disabled:opacity-50">
               <i className="ti ti-refresh text-sm" />
@@ -194,8 +222,9 @@ export default function DashboardPage() {
                       <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false} />
-                  <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={v => `$${v}`} width={50} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10 }} tickLine={false} axisLine={false}
+                    minTickGap={24} tickFormatter={(v: string) => (v ?? '').slice(5)} />
+                  <YAxis tick={{ fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={(v: number) => `$${v}`} width={50} />
                   <Tooltip content={<UsdTooltip />} />
                   <Area type="monotone" dataKey="cost_usd" stroke="#6366f1" strokeWidth={2}
                     fill="url(#costGrad)" dot={false} name="Cost (USD)" />
@@ -320,7 +349,7 @@ export default function DashboardPage() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50 text-gray-500 uppercase tracking-wide">
-                    <th className="text-left px-4 py-2.5">Book</th>
+                    <th className="text-left px-4 py-2.5">Book / ID</th>
                     <th className="text-right px-4 py-2.5">Cost</th>
                   </tr>
                 </thead>
@@ -329,11 +358,16 @@ export default function DashboardPage() {
                     <tr key={b.job_id} className="hover:bg-gray-50">
                       <td className="px-4 py-2.5">
                         <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-gray-400 font-mono w-4">{i + 1}</span>
-                          <span className="text-gray-800 truncate max-w-[180px]">{b.title}</span>
+                          <span className="text-[10px] text-gray-400 font-mono w-4 shrink-0">{i + 1}</span>
+                          <div className="min-w-0">
+                            <span className="text-gray-800 truncate max-w-[200px] block">{b.title}</span>
+                            <span className="text-[10px] text-gray-400 font-mono">
+                              ID: {b.book_id}{b.job_id ? ` · job ${b.job_id.slice(0, 8)}` : ''}
+                            </span>
+                          </div>
                         </div>
                       </td>
-                      <td className="px-4 py-2.5 text-right font-medium text-indigo-700">
+                      <td className="px-4 py-2.5 text-right font-medium text-indigo-700 align-top">
                         ${b.cost_usd.toFixed(4)}
                       </td>
                     </tr>

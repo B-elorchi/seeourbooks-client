@@ -56,9 +56,55 @@ function flattenOptions(opts: OptionList): string[] {
 }
 
 // ── Config rows ───────────────────────────────────────────────────────────────
+// ── Gemini TTS voices (with gender) ─────────────────────────────────────────
+// Google publishes ~30 prebuilt voices for Gemini speech generation. These are
+// the most commonly used, tagged by perceived gender for the admin picker.
+// All work for both English and Arabic. Native API uses these names directly;
+// via OpenRouter the names are mapped to OpenAI voices automatically.
+const GEMINI_VOICES: Array<{ name: string; gender: 'Female' | 'Male' }> = [
+  { name: 'Kore',       gender: 'Female' },
+  { name: 'Aoede',      gender: 'Female' },
+  { name: 'Leda',       gender: 'Female' },
+  { name: 'Zephyr',     gender: 'Female' },
+  { name: 'Callirrhoe', gender: 'Female' },
+  { name: 'Autonoe',    gender: 'Female' },
+  { name: 'Despina',    gender: 'Female' },
+  { name: 'Erinome',    gender: 'Female' },
+  { name: 'Charon',     gender: 'Male'   },
+  { name: 'Puck',       gender: 'Male'   },
+  { name: 'Fenrir',     gender: 'Male'   },
+  { name: 'Orus',       gender: 'Male'   },
+  { name: 'Enceladus',  gender: 'Male'   },
+  { name: 'Iapetus',    gender: 'Male'   },
+  { name: 'Umbriel',    gender: 'Male'   },
+  { name: 'Algieba',    gender: 'Male'   },
+]
+
+// visibleWhen — optional predicate that hides a row unless it returns true,
+// based on the current live config. Used to show only the config fields that
+// belong to the currently-selected TTS provider (EN/AR), instead of every
+// provider's fields at once.
+type ConfigSnapshot = Record<string, string | undefined>
+
+// Resolve the effective TTS provider for a language, mirroring the backend
+// settings defaults so the right rows show even before the admin saves anything.
+const _TTS_PROVIDER_DEFAULTS: Record<'EN' | 'AR', string> = { EN: 'deepgram', AR: 'cartesia' }
+function ttsProvider(cfg: ConfigSnapshot, lang: 'EN' | 'AR'): string {
+  return (cfg[`TTS_PROVIDER_${lang}`] || _TTS_PROVIDER_DEFAULTS[lang]).toLowerCase()
+}
+// True when EITHER language is using the given provider — for shared fields
+// (Gemini model/voice, OpenRouter model/voice, Cartesia model).
+function ttsUsesProvider(cfg: ConfigSnapshot, provider: string): boolean {
+  return ttsProvider(cfg, 'EN') === provider || ttsProvider(cfg, 'AR') === provider
+}
+
 const PROVIDER_GROUPS: Array<{
   title: string
-  rows: Array<{ key: string; label: string; options: OptionList; type?: RowType; placeholder?: string; labelMap?: Record<string, string> }>
+  rows: Array<{
+    key: string; label: string; options: OptionList; type?: RowType
+    placeholder?: string; labelMap?: Record<string, string>
+    visibleWhen?: (cfg: ConfigSnapshot) => boolean
+  }>
 }> = [
   {
     title: 'Summarization',
@@ -177,21 +223,23 @@ const PROVIDER_GROUPS: Array<{
       // ── English ─────────────────────────────────────────────────────────────
       { key: 'TTS_PROVIDER_EN', label: 'Provider (EN)', options: ['deepgram', 'elevenlabs', 'cartesia', 'openrouter', 'gemini'] },
       {
-        key: 'TTS_VOICE_EN', label: 'Voice ID (EN) — provider-specific',
-        // Combo: pick a Deepgram voice or type any provider voice id
-        // (Cartesia UUID, ElevenLabs id, Gemini/OpenRouter voice name).
+        key: 'TTS_VOICE_EN', label: 'Deepgram voice (EN)',
+        // Deepgram Aura voice for EN. Other providers use their own dedicated
+        // voice fields below — this row only shows when EN provider = deepgram.
         options: ['aura-asteria-en', 'aura-arcas-en', 'aura-luna-en'],
         type: 'combo',
-        placeholder: 'Deepgram voice  |  Cartesia UUID  |  ElevenLabs id  |  OpenAI/Gemini voice',
+        placeholder: 'aura-asteria-en',
+        visibleWhen: c => ttsProvider(c, 'EN') === 'deepgram',
       },
       // ── Arabic ──────────────────────────────────────────────────────────────
       // Deepgram Aura voices are English-only and cannot pronounce Arabic text.
       { key: 'TTS_PROVIDER_AR', label: 'Provider (AR) — ⚠️ Deepgram is EN-only', options: ['cartesia', 'elevenlabs', 'openrouter', 'gemini'] },
       {
-        key: 'TTS_VOICE_AR', label: 'Voice ID (AR) — provider-specific',
+        key: 'TTS_VOICE_AR', label: 'Deepgram voice (AR)',
         options: [],
         type: 'text',
-        placeholder: 'Cartesia UUID  |  ElevenLabs ID  |  Gemini/OpenRouter voice name',
+        placeholder: 'aura voice (EN-only — not recommended for Arabic)',
+        visibleWhen: c => ttsProvider(c, 'AR') === 'deepgram',
       },
       // ── ElevenLabs (voices fetched live from the API) ─────────────────────────
       {
@@ -199,12 +247,14 @@ const PROVIDER_GROUPS: Array<{
         options: [],          // populated live from /api/admin/elevenlabs-voices
         type: 'combo',
         placeholder: 'Pick an ElevenLabs voice…',
+        visibleWhen: c => ttsProvider(c, 'EN') === 'elevenlabs',
       },
       {
         key: 'ELEVENLABS_VOICE_AR', label: 'ElevenLabs voice (AR)',
         options: [],          // populated live from /api/admin/elevenlabs-voices
         type: 'combo',
         placeholder: 'Pick an ElevenLabs voice…',
+        visibleWhen: c => ttsProvider(c, 'AR') === 'elevenlabs',
       },
       // ── Cartesia ────────────────────────────────────────────────────────────
       {
@@ -212,38 +262,44 @@ const PROVIDER_GROUPS: Array<{
         options: [],
         type: 'text',
         placeholder: 'sonic-3.5-2026-05-04',
+        visibleWhen: c => ttsUsesProvider(c, 'cartesia'),
       },
       {
         key: 'CARTESIA_VOICE_EN', label: 'Cartesia voice ID (EN)',
         options: [], type: 'text',
         placeholder: 'a0e99841-438c-4a64-b679-ae501e7d6091',
+        visibleWhen: c => ttsProvider(c, 'EN') === 'cartesia',
       },
       {
         key: 'CARTESIA_VOICE_AR', label: 'Cartesia voice ID (AR)',
         options: [], type: 'text',
         placeholder: 'voice UUID from play.cartesia.ai/voices',
+        visibleWhen: c => ttsProvider(c, 'AR') === 'cartesia',
       },
       // ── Gemini (native) ─────────────────────────────────────────────────────
       // Used when Provider (EN/AR) = "gemini". Works for BOTH English & Arabic.
       // Native Gemini voice names (Kore, Charon, …) — NOT OpenAI voice names.
       {
-        key: 'GEMINI_TTS_MODEL', label: 'Gemini TTS model (provider = gemini)',
+        key: 'GEMINI_TTS_MODEL', label: 'Gemini TTS model',
         options: ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-preview-tts'],
         type: 'combo',
         placeholder: 'gemini-2.5-flash-preview-tts',
+        visibleWhen: c => ttsUsesProvider(c, 'gemini'),
       },
       {
         key: 'GEMINI_TTS_VOICE', label: 'Gemini TTS voice',
-        options: ['Kore', 'Charon', 'Puck', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr'],
+        options: GEMINI_VOICES.map(v => v.name),
         type: 'combo',
         placeholder: 'Kore',
+        labelMap: Object.fromEntries(GEMINI_VOICES.map(v => [v.name, `${v.name} — ${v.gender}`])),
+        visibleWhen: c => ttsUsesProvider(c, 'gemini'),
       },
       // ── OpenRouter ──────────────────────────────────────────────────────────
       // Used when Provider (EN/AR) = "openrouter". Works for BOTH English & Arabic.
       // OpenRouter's /api/v1/audio/speech endpoint serves OpenAI audio models AND
       // Google Gemini TTS models — all addressed with OpenAI voice names (alloy…).
       {
-        key: 'OPENROUTER_TTS_MODEL', label: 'OpenRouter TTS model (provider = openrouter)',
+        key: 'OPENROUTER_TTS_MODEL', label: 'OpenRouter TTS model',
         options: [
           'google/gemini-2.5-flash-preview-tts',
           'google/gemini-3.1-flash-preview-tts',
@@ -252,6 +308,7 @@ const PROVIDER_GROUPS: Array<{
         ],
         type: 'combo',
         placeholder: 'google/gemini-2.5-flash-preview-tts',
+        visibleWhen: c => ttsUsesProvider(c, 'openrouter'),
       },
       {
         // OpenRouter /audio/speech uses OpenAI voice names for all models.
@@ -259,6 +316,7 @@ const PROVIDER_GROUPS: Array<{
         options: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'coral', 'verse', 'ballad', 'ash', 'sage', 'marin', 'cedar'],
         type: 'combo',
         placeholder: 'alloy',
+        visibleWhen: c => ttsUsesProvider(c, 'openrouter'),
       },
     ],
   },
@@ -1022,7 +1080,9 @@ function ProvidersTab() {
           </div>
           {group.title === 'Text-to-Speech' && <TtsReferenceTable />}
           <div className="divide-y divide-gray-800">
-            {group.rows.map(row => {
+            {group.rows
+              .filter(row => !row.visibleWhen || row.visibleWhen(config))
+              .map(row => {
               // Resolve the first flat string as fallback default
               const firstFlat = row.options.find(o => typeof o === 'string') as string | undefined
               const firstGroup = row.options.find(o => typeof o !== 'string') as OptGroup | undefined
@@ -2506,37 +2566,19 @@ const VOICE_PRESETS: Record<string, { label: string; text: string }> = {
 
 // Per-model voice lists with language support.
 // Format: model → { voices: [{name, langs: ['en'|'ar'|'all']}], defaultVoice }
-type VoiceInfo = { name: string; langs: string[] }
+type VoiceInfo = { name: string; langs: string[]; gender?: 'Female' | 'Male' }
 type ModelVoices = { voices: VoiceInfo[]; defaultVoice: string }
+
+// Gemini voices (with gender) for the preview tester — shared with the settings
+// picker via GEMINI_VOICES so the two stay in sync.
+const GEMINI_VOICE_INFO: VoiceInfo[] = GEMINI_VOICES.map(v => ({
+  name: v.name, langs: ['all'], gender: v.gender,
+}))
 
 const PROVIDER_MODEL_VOICES: Record<string, Record<string, ModelVoices>> = {
   gemini: {
-    'gemini-2.5-flash-preview-tts': {
-      voices: [
-        { name: 'Kore',    langs: ['all'] },
-        { name: 'Charon',  langs: ['all'] },
-        { name: 'Puck',    langs: ['all'] },
-        { name: 'Fenrir',  langs: ['all'] },
-        { name: 'Aoede',   langs: ['all'] },
-        { name: 'Leda',    langs: ['all'] },
-        { name: 'Orus',    langs: ['all'] },
-        { name: 'Zephyr',  langs: ['all'] },
-      ],
-      defaultVoice: 'Kore',
-    },
-    'gemini-3.1-flash-preview-tts': {
-      voices: [
-        { name: 'Kore',    langs: ['all'] },
-        { name: 'Charon',  langs: ['all'] },
-        { name: 'Puck',    langs: ['all'] },
-        { name: 'Fenrir',  langs: ['all'] },
-        { name: 'Aoede',   langs: ['all'] },
-        { name: 'Leda',    langs: ['all'] },
-        { name: 'Orus',    langs: ['all'] },
-        { name: 'Zephyr',  langs: ['all'] },
-      ],
-      defaultVoice: 'Kore',
-    },
+    'gemini-2.5-flash-preview-tts': { voices: GEMINI_VOICE_INFO, defaultVoice: 'Kore' },
+    'gemini-3.1-flash-preview-tts': { voices: GEMINI_VOICE_INFO, defaultVoice: 'Kore' },
   },
   openrouter: {
     // Gemini TTS via OpenRouter uses OpenAI voice names (alloy…), NOT Gemini
@@ -2782,17 +2824,21 @@ function VoicesTab() {
                 {availableVoices.map(v => {
                   const isAll = v.langs.includes('all')
                   const tag = isAll ? 'ALL' : v.langs.map(l => l.toUpperCase()).join('/')
+                  const genderIcon = v.gender === 'Female' ? '♀' : v.gender === 'Male' ? '♂' : ''
                   return (
                     <button
                       key={v.name}
                       onClick={() => setVoice(v.name)}
-                      title={isAll ? 'Supports all languages' : `Languages: ${tag}`}
+                      title={`${v.gender ? v.gender + ' · ' : ''}${isAll ? 'Supports all languages' : `Languages: ${tag}`}`}
                       className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                         voice === v.name
                           ? 'bg-indigo-600 text-white'
                           : 'bg-gray-800 text-gray-400 hover:text-gray-200 border border-gray-700'
                       }`}
                     >
+                      {genderIcon && (
+                        <span className={v.gender === 'Female' ? 'text-pink-400' : 'text-sky-400'}>{genderIcon}</span>
+                      )}
                       {v.name}
                       <span className={`text-[9px] px-1 py-0.5 rounded font-mono ${
                         voice === v.name ? 'bg-white/20 text-white' : 'bg-gray-700 text-gray-400'
