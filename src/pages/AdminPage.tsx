@@ -224,31 +224,40 @@ const PROVIDER_GROUPS: Array<{
         placeholder: 'voice UUID from play.cartesia.ai/voices',
       },
       // ── Gemini (native) ─────────────────────────────────────────────────────
+      // Used when Provider (EN/AR) = "gemini". Works for BOTH English & Arabic.
+      // Native Gemini voice names (Kore, Charon, …) — NOT OpenAI voice names.
       {
-        key: 'GEMINI_TTS_MODEL', label: 'Gemini TTS model',
-        options: ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview'],
+        key: 'GEMINI_TTS_MODEL', label: 'Gemini TTS model (provider = gemini)',
+        options: ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-preview-tts'],
         type: 'combo',
         placeholder: 'gemini-2.5-flash-preview-tts',
       },
       {
         key: 'GEMINI_TTS_VOICE', label: 'Gemini TTS voice',
         options: ['Kore', 'Charon', 'Puck', 'Fenrir', 'Aoede', 'Leda', 'Orus', 'Zephyr'],
+        type: 'combo',
         placeholder: 'Kore',
       },
       // ── OpenRouter ──────────────────────────────────────────────────────────
-      // Uses OpenRouter's /api/v1/audio/speech endpoint, which supports both
-      // OpenAI audio models AND Google Gemini TTS models, all with OpenAI voice
-      // names (alloy, echo, …).
+      // Used when Provider (EN/AR) = "openrouter". Works for BOTH English & Arabic.
+      // OpenRouter's /api/v1/audio/speech endpoint serves OpenAI audio models AND
+      // Google Gemini TTS models — all addressed with OpenAI voice names (alloy…).
       {
-        key: 'OPENROUTER_TTS_MODEL', label: 'OpenRouter TTS model',
-        options: ['openai/gpt-audio', 'openai/gpt-audio-mini', 'google/gemini-2.5-flash-tts-preview', 'google/gemini-3.1-flash-tts-preview'],
+        key: 'OPENROUTER_TTS_MODEL', label: 'OpenRouter TTS model (provider = openrouter)',
+        options: [
+          'google/gemini-2.5-flash-preview-tts',
+          'google/gemini-3.1-flash-preview-tts',
+          'openai/gpt-audio',
+          'openai/gpt-audio-mini',
+        ],
         type: 'combo',
-        placeholder: 'openai/gpt-audio-mini',
+        placeholder: 'google/gemini-2.5-flash-preview-tts',
       },
       {
         // OpenRouter /audio/speech uses OpenAI voice names for all models.
         key: 'OPENROUTER_TTS_VOICE', label: 'OpenRouter TTS voice (OpenAI voice names)',
         options: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'coral', 'verse', 'ballad', 'ash', 'sage', 'marin', 'cedar'],
+        type: 'combo',
         placeholder: 'alloy',
       },
     ],
@@ -788,11 +797,11 @@ const TTS_MODEL_REFERENCE: Array<{
   langs: string[]
 }> = [
   { provider: 'gemini',     model: 'gemini-2.5-flash-preview-tts',        voices: 'Kore, Charon, Puck, Fenrir, Aoede, Leda, Orus, Zephyr', langs: ['en', 'ar'] },
-  { provider: 'gemini',     model: 'gemini-3.1-flash-tts-preview',        voices: 'Kore, Charon, Puck, Fenrir, Aoede, Leda, Orus, Zephyr', langs: ['en', 'ar'] },
+  { provider: 'gemini',     model: 'gemini-3.1-flash-preview-tts',        voices: 'Kore, Charon, Puck, Fenrir, Aoede, Leda, Orus, Zephyr', langs: ['en', 'ar'] },
+  { provider: 'openrouter', model: 'google/gemini-2.5-flash-preview-tts', voices: 'alloy, echo, nova … (OpenAI voice names)',           langs: ['en', 'ar'] },
+  { provider: 'openrouter', model: 'google/gemini-3.1-flash-preview-tts', voices: 'alloy, echo, nova … (OpenAI voice names)',           langs: ['en', 'ar'] },
   { provider: 'openrouter', model: 'openai/gpt-audio',                    voices: 'alloy, echo, nova, shimmer, coral, sage … (OpenAI)',  langs: ['en', 'ar'] },
   { provider: 'openrouter', model: 'openai/gpt-audio-mini',               voices: 'alloy, echo, nova, shimmer, coral, sage … (OpenAI)',  langs: ['en', 'ar'] },
-  { provider: 'openrouter', model: 'google/gemini-2.5-flash-tts-preview', voices: 'alloy, echo, nova … (OpenAI voice names)',           langs: ['en', 'ar'] },
-  { provider: 'openrouter', model: 'google/gemini-3.1-flash-tts-preview', voices: 'alloy, echo, nova … (OpenAI voice names)',           langs: ['en', 'ar'] },
   { provider: 'cartesia',   model: 'sonic-3.5-2026-05-04',                voices: 'Cartesia voice UUID',                                langs: ['en', 'ar'] },
   { provider: 'elevenlabs', model: 'eleven_multilingual_v2',              voices: 'ElevenLabs voice ID',                                langs: ['en', 'ar'] },
   { provider: 'deepgram',   model: 'aura-asteria-en',                     voices: 'aura-asteria-en, aura-arcas-en, aura-luna-en',       langs: ['en'] },
@@ -2515,7 +2524,7 @@ const PROVIDER_MODEL_VOICES: Record<string, Record<string, ModelVoices>> = {
       ],
       defaultVoice: 'Kore',
     },
-    'gemini-3.1-flash-tts-preview': {
+    'gemini-3.1-flash-preview-tts': {
       voices: [
         { name: 'Kore',    langs: ['all'] },
         { name: 'Charon',  langs: ['all'] },
@@ -2530,6 +2539,34 @@ const PROVIDER_MODEL_VOICES: Record<string, Record<string, ModelVoices>> = {
     },
   },
   openrouter: {
+    // Gemini TTS via OpenRouter uses OpenAI voice names (alloy…), NOT Gemini
+    // voice names — OpenRouter's /audio/speech endpoint normalizes them.
+    'google/gemini-2.5-flash-preview-tts': {
+      voices: [
+        { name: 'alloy',   langs: ['all'] },
+        { name: 'echo',    langs: ['all'] },
+        { name: 'fable',   langs: ['all'] },
+        { name: 'onyx',    langs: ['all'] },
+        { name: 'nova',    langs: ['all'] },
+        { name: 'shimmer', langs: ['all'] },
+        { name: 'coral',   langs: ['all'] },
+        { name: 'sage',    langs: ['all'] },
+      ],
+      defaultVoice: 'alloy',
+    },
+    'google/gemini-3.1-flash-preview-tts': {
+      voices: [
+        { name: 'alloy',   langs: ['all'] },
+        { name: 'echo',    langs: ['all'] },
+        { name: 'fable',   langs: ['all'] },
+        { name: 'onyx',    langs: ['all'] },
+        { name: 'nova',    langs: ['all'] },
+        { name: 'shimmer', langs: ['all'] },
+        { name: 'coral',   langs: ['all'] },
+        { name: 'sage',    langs: ['all'] },
+      ],
+      defaultVoice: 'alloy',
+    },
     'openai/gpt-audio': {
       voices: [
         { name: 'alloy',   langs: ['all'] },
@@ -2596,8 +2633,13 @@ const PROVIDER_MODEL_VOICES: Record<string, Record<string, ModelVoices>> = {
 }
 
 const PROVIDER_MODELS: Record<string, string[]> = {
-  gemini:     ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-tts-preview'],
-  openrouter: ['openai/gpt-audio', 'openai/gpt-audio-mini'],
+  gemini:     ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-preview-tts'],
+  openrouter: [
+    'google/gemini-2.5-flash-preview-tts',
+    'google/gemini-3.1-flash-preview-tts',
+    'openai/gpt-audio',
+    'openai/gpt-audio-mini',
+  ],
   cartesia:   ['sonic-3.5-2026-05-04'],
   elevenlabs: ['eleven_multilingual_v2'],
   deepgram:   ['aura-asteria-en'],
