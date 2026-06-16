@@ -441,13 +441,13 @@ const VOICE_PRESETS: Record<string, { text: string }> = {
 }
 
 // Which voices are valid for an OpenRouter TTS model depends on the model vendor.
-function openRouterVoicesForModel(model: string): TtsVoiceEntry[] {
-  if (model?.startsWith('google/')) return GEMINI_VOICES
+function openRouterVoices(): TtsVoiceEntry[] {
+  // OpenRouter's /audio/speech endpoint is OpenAI-compatible and expects
+  // OpenAI voice names (alloy, echo, nova, …) even for Gemini models.
   return OPENAI_VOICES
 }
 
-function openRouterDefaultVoice(model: string): string {
-  if (model?.startsWith('google/')) return 'Kore'
+function openRouterDefaultVoice(): string {
   return 'alloy'
 }
 
@@ -580,7 +580,7 @@ function TtsVoiceGrid({
       {openaiVoices.length > 0 && (
         <div>
           <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">
-            OpenAI Voices — for <code className="text-gray-400">openai/*</code> models
+            OpenRouter Voices
           </p>
           <div className="flex flex-wrap gap-1.5">
             {openaiVoices.map(v => <VoiceChip key={v.name} v={v} />)}
@@ -618,7 +618,7 @@ function ConfigRowView({
         : config.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts'
     )
     const voices = row.voiceGrid.provider === 'openrouter'
-      ? openRouterVoicesForModel(previewModel)
+      ? openRouterVoices()
       : GEMINI_VOICES
     return (
       <div className="px-5 py-3">
@@ -891,22 +891,22 @@ function VoicesSection() {
     deepgram:   ['aura-asteria-en'],
   }
 
-  function voicesFor(provider: Provider, model: string): TtsVoiceEntry[] {
-    if (provider === 'openrouter') return openRouterVoicesForModel(model)
+  function voicesFor(provider: Provider): TtsVoiceEntry[] {
+    if (provider === 'openrouter') return openRouterVoices()
     if (provider === 'gemini') return GEMINI_VOICES
     if (provider === 'deepgram') return DEEPGRAM_VOICES
     return []
   }
 
-  function defaultVoice(provider: Provider, model: string): string {
-    if (provider === 'openrouter') return openRouterDefaultVoice(model)
-    const vs = voicesFor(provider, model)
+  function defaultVoice(provider: Provider): string {
+    if (provider === 'openrouter') return openRouterDefaultVoice()
+    const vs = voicesFor(provider)
     return vs[0]?.name || ''
   }
 
   const [provider, setProvider]   = useState<Provider>('openrouter')
   const [model, setModel]         = useState(providerModels.openrouter[0])
-  const [voice, setVoice]         = useState(defaultVoice('openrouter', providerModels.openrouter[0]))
+  const [voice, setVoice]         = useState(defaultVoice('openrouter'))
   const [language, setLanguage]   = useState<'en' | 'ar'>('en')
   const [previewText, setPreviewText] = useState(VOICE_PRESETS.en.text)
   const [loading, setLoading]     = useState(false)
@@ -918,12 +918,12 @@ function VoicesSection() {
     setProvider(p)
     const m = providerModels[p][0] || ''
     setModel(m)
-    setVoice(defaultVoice(p, m))
+    setVoice(defaultVoice(p))
   }
 
   function handleSetModel(m: string) {
     setModel(m)
-    setVoice(defaultVoice(provider, m))
+    setVoice(defaultVoice(provider))
   }
 
   function handleSetLanguage(lang: 'en' | 'ar') {
@@ -943,7 +943,7 @@ function VoicesSection() {
   }
 
   const availableModels = providerModels[provider] || []
-  const availableVoices = voicesFor(provider, model)
+  const availableVoices = voicesFor(provider)
 
   return (
     <div className="space-y-6 max-w-2xl">
