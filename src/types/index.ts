@@ -9,6 +9,8 @@ export interface Chapter {
 export interface PipelineOptions {
   length: string   // '3min' | '5min' | '10min' | '15min'
   style:  string   // 'narrative' | 'bullets' | 'academic'
+  length_preset?: 'small' | 'medium' | 'large' | 'custom' | null
+  max_chars?:     number | null
 }
 
 export interface PipelineReq {
@@ -36,6 +38,8 @@ export interface ChapterResult {
   audio_en?:      string
   audio_ar?:      string
   mindmap_url?:   string
+  mindmap_en_url?: string
+  mindmap_ar_url?: string
   mindmap_format?: 'mermaid' | 'json'
   mindmap_data?:  unknown      // parsed JSON tree when format = 'json'
 }
@@ -54,10 +58,14 @@ export interface SummaryAsset {
 }
 
 export interface FileChapterEntry {
-  index:       number
-  title?:      string
-  audio_url?:  string
-  mindmap_url?: string
+  index:           number
+  title?:          string
+  audio_url?:      string
+  audio_en_url?:   string
+  audio_ar_url?:   string
+  mindmap_url?:    string
+  mindmap_en_url?: string
+  mindmap_ar_url?: string
 }
 
 export interface FilesAsset {
@@ -98,6 +106,8 @@ export interface PipelineResult {
   summaries:      Record<string, SummaryAsset>    // e.g. "10min_en"
   audio:          Record<string, AudioAsset>       // e.g. "full_en"
   mindmap?:       { url: string; data?: unknown }
+  mindmap_en?:    { url: string; data?: unknown }
+  mindmap_ar?:    { url: string; data?: unknown }
   epub?:          Record<string, { url: string }> | null  // e.g. {"enriched_en": {"url": "..."}}
   video?:         Record<string, VideoAsset> | null       // e.g. {"summary_en": {url, duration_seconds, ...}}
   chapters:              ChapterResult[]
