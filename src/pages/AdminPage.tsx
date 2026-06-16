@@ -80,6 +80,23 @@ const GEMINI_VOICES: Array<{ name: string; gender: 'Female' | 'Male' }> = [
   { name: 'Algieba',    gender: 'Male'   },
 ]
 
+// OpenAI TTS voices with gender — used for openai/* models via OpenRouter.
+const OPENAI_VOICES: Array<{ name: string; gender: 'Female' | 'Male' }> = [
+  { name: 'alloy',   gender: 'Female' },
+  { name: 'echo',    gender: 'Male'   },
+  { name: 'fable',   gender: 'Male'   },
+  { name: 'onyx',    gender: 'Male'   },
+  { name: 'nova',    gender: 'Female' },
+  { name: 'shimmer', gender: 'Female' },
+  { name: 'coral',   gender: 'Female' },
+  { name: 'verse',   gender: 'Male'   },
+  { name: 'ballad',  gender: 'Male'   },
+  { name: 'ash',     gender: 'Male'   },
+  { name: 'sage',    gender: 'Female' },
+  { name: 'marin',   gender: 'Female' },
+  { name: 'cedar',   gender: 'Male'   },
+]
+
 // visibleWhen — optional predicate that hides a row unless it returns true,
 // based on the current live config. Used to show only the config fields that
 // belong to the currently-selected TTS provider (EN/AR), instead of every
@@ -98,12 +115,20 @@ function ttsUsesProvider(cfg: ConfigSnapshot, provider: string): boolean {
   return ttsProvider(cfg, 'EN') === provider || ttsProvider(cfg, 'AR') === provider
 }
 
+// Row shape — extended to support an inline voice-grid with preview buttons.
+// When voiceGrid is set the standard select/combo is replaced by TtsVoiceGrid.
+type TtsVoiceEntry = { name: string; gender: 'Female' | 'Male' }
+
 const PROVIDER_GROUPS: Array<{
   title: string
   rows: Array<{
     key: string; label: string; options: OptionList; type?: RowType
     placeholder?: string; labelMap?: Record<string, string>
     visibleWhen?: (cfg: ConfigSnapshot) => boolean
+    // Voice-grid fields (replaces select/combo when present)
+    voiceGrid?: TtsVoiceEntry[]
+    previewLang?: 'en' | 'ar'
+    previewModelKey?: string   // config key for the TTS model (default 'OPENROUTER_TTS_MODEL')
   }>
 }> = [
   {
@@ -221,7 +246,7 @@ const PROVIDER_GROUPS: Array<{
     title: 'Text-to-Speech',
     rows: [
       // ── English ─────────────────────────────────────────────────────────────
-      { key: 'TTS_PROVIDER_EN', label: 'Provider (EN)', options: ['deepgram', 'elevenlabs', 'cartesia', 'openrouter', 'gemini'] },
+      { key: 'TTS_PROVIDER_EN', label: 'Provider (EN)', options: ['deepgram', 'elevenlabs', 'cartesia', 'openrouter'] },
       {
         key: 'TTS_VOICE_EN', label: 'Deepgram voice (EN)',
         // Deepgram Aura voice for EN. Other providers use their own dedicated
@@ -233,7 +258,7 @@ const PROVIDER_GROUPS: Array<{
       },
       // ── Arabic ──────────────────────────────────────────────────────────────
       // Deepgram Aura voices are English-only and cannot pronounce Arabic text.
-      { key: 'TTS_PROVIDER_AR', label: 'Provider (AR) — ⚠️ Deepgram is EN-only', options: ['cartesia', 'elevenlabs', 'openrouter', 'gemini'] },
+      { key: 'TTS_PROVIDER_AR', label: 'Provider (AR) — ⚠️ Deepgram is EN-only', options: ['cartesia', 'elevenlabs', 'openrouter'] },
       {
         key: 'TTS_VOICE_AR', label: 'Deepgram voice (AR)',
         options: [],
@@ -311,12 +336,22 @@ const PROVIDER_GROUPS: Array<{
         visibleWhen: c => ttsUsesProvider(c, 'openrouter'),
       },
       {
-        // OpenRouter /audio/speech uses OpenAI voice names for all models.
-        key: 'OPENROUTER_TTS_VOICE', label: 'OpenRouter TTS voice (OpenAI voice names)',
-        options: ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer', 'coral', 'verse', 'ballad', 'ash', 'sage', 'marin', 'cedar'],
-        type: 'combo',
-        placeholder: 'alloy',
-        visibleWhen: c => ttsUsesProvider(c, 'openrouter'),
+        key: 'OPENROUTER_TTS_VOICE_EN',
+        label: 'OpenRouter TTS voice (EN) — click ▶ to preview',
+        options: [],
+        voiceGrid: [...GEMINI_VOICES, ...OPENAI_VOICES],
+        previewLang: 'en',
+        previewModelKey: 'OPENROUTER_TTS_MODEL',
+        visibleWhen: c => ttsProvider(c, 'EN') === 'openrouter',
+      },
+      {
+        key: 'OPENROUTER_TTS_VOICE_AR',
+        label: 'OpenRouter TTS voice (AR) — click ▶ to preview',
+        options: [],
+        voiceGrid: [...GEMINI_VOICES, ...OPENAI_VOICES],
+        previewLang: 'ar',
+        previewModelKey: 'OPENROUTER_TTS_MODEL',
+        visibleWhen: c => ttsProvider(c, 'AR') === 'openrouter',
       },
     ],
   },
@@ -854,10 +889,8 @@ const TTS_MODEL_REFERENCE: Array<{
   voices: string
   langs: string[]
 }> = [
-  { provider: 'gemini',     model: 'gemini-2.5-flash-preview-tts',        voices: 'Kore, Charon, Puck, Fenrir, Aoede, Leda, Orus, Zephyr', langs: ['en', 'ar'] },
-  { provider: 'gemini',     model: 'gemini-3.1-flash-preview-tts',        voices: 'Kore, Charon, Puck, Fenrir, Aoede, Leda, Orus, Zephyr', langs: ['en', 'ar'] },
-  { provider: 'openrouter', model: 'google/gemini-2.5-flash-preview-tts', voices: 'alloy, echo, nova … (OpenAI voice names)',           langs: ['en', 'ar'] },
-  { provider: 'openrouter', model: 'google/gemini-3.1-flash-preview-tts', voices: 'alloy, echo, nova … (OpenAI voice names)',           langs: ['en', 'ar'] },
+  { provider: 'openrouter', model: 'google/gemini-2.5-flash-preview-tts', voices: 'Kore ♀, Aoede ♀, Charon ♂, Puck ♂ … (Gemini voice names)', langs: ['en', 'ar'] },
+  { provider: 'openrouter', model: 'google/gemini-3.1-flash-preview-tts', voices: 'Kore ♀, Aoede ♀, Charon ♂, Puck ♂ … (Gemini voice names)', langs: ['en', 'ar'] },
   { provider: 'openrouter', model: 'openai/gpt-audio',                    voices: 'alloy, echo, nova, shimmer, coral, sage … (OpenAI)',  langs: ['en', 'ar'] },
   { provider: 'openrouter', model: 'openai/gpt-audio-mini',               voices: 'alloy, echo, nova, shimmer, coral, sage … (OpenAI)',  langs: ['en', 'ar'] },
   { provider: 'cartesia',   model: 'sonic-3.5-2026-05-04',                voices: 'Cartesia voice UUID',                                langs: ['en', 'ar'] },
@@ -904,11 +937,143 @@ function TtsReferenceTable() {
         </table>
       </div>
       <p className="text-[11px] text-amber-400/80 mt-2">
-        ℹ️ OpenRouter routes both OpenAI and Google Gemini TTS models via its
-        <code className="text-amber-300"> /audio/speech</code> endpoint — always use OpenAI voice
-        names (alloy, echo…) there. The native <code className="text-amber-300">gemini</code> provider
-        uses Gemini voice names (Kore…). Deepgram is English-only.
+        ℹ️ For Gemini TTS always use <code className="text-amber-300">openrouter</code> provider
+        with a <code className="text-amber-300">google/*</code> model — then pick Gemini voice names
+        (Kore ♀, Charon ♂, Aoede ♀…). For <code className="text-amber-300">openai/*</code> models
+        use OpenAI voice names (alloy ♀, echo ♂…). Deepgram is English-only.
       </p>
+    </div>
+  )
+}
+
+
+// ── TTS Voice Grid ────────────────────────────────────────────────────────────
+// Renders a clickable voice grid with ♀/♂ gender icons and a ▶ preview button
+// on each voice chip. Used inside the Text-to-Speech settings section so the
+// admin can hear a voice before selecting it without switching to the Voices tab.
+
+const _PREVIEW_TEXT: Record<'en' | 'ar', string> = {
+  en: 'Hello, this is a preview of the selected voice.',
+  ar: 'مرحباً، هذا معاينة للصوت المحدد لمنصة سيأوربوك.',
+}
+
+const _GEMINI_NAME_SET = new Set(GEMINI_VOICES.map(v => v.name))
+
+function TtsVoiceGrid({
+  voices,
+  current,
+  onChange,
+  previewProvider,
+  previewModel,
+  previewLang,
+}: {
+  voices: TtsVoiceEntry[]
+  current: string
+  onChange: (v: string) => void
+  previewProvider: string
+  previewModel: string
+  previewLang: 'en' | 'ar'
+}) {
+  const [previewing, setPreviewing] = useState<string | null>(null)
+  const [audioUrl,   setAudioUrl]   = useState<string | null>(null)
+  const [audioErr,   setAudioErr]   = useState<string | null>(null)
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+
+  async function handlePreview(voiceName: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    if (previewing) return
+    setPreviewing(voiceName)
+    setAudioUrl(null)
+    setAudioErr(null)
+    try {
+      const result = await previewTTS({
+        text:     _PREVIEW_TEXT[previewLang],
+        provider: previewProvider,
+        model:    previewModel,
+        voice:    voiceName,
+        language: previewLang,
+      })
+      const url = `data:${result.mime_type};base64,${result.audio_base64}`
+      setAudioUrl(url)
+      setTimeout(() => { audioRef.current?.play().catch(() => {}) }, 50)
+    } catch (err) {
+      setAudioErr(err instanceof Error ? err.message : String(err))
+    } finally {
+      setPreviewing(null)
+    }
+  }
+
+  const geminiVoices = voices.filter(v => _GEMINI_NAME_SET.has(v.name))
+  const openaiVoices = voices.filter(v => !_GEMINI_NAME_SET.has(v.name))
+
+  const VoiceChip = ({ v }: { v: TtsVoiceEntry }) => {
+    const isSelected = current === v.name
+    const isSpinning = previewing === v.name
+    return (
+      <div
+        onClick={() => onChange(v.name)}
+        title={`${v.gender} · click to select`}
+        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-all select-none
+          ${isSelected
+            ? 'bg-indigo-600 border-indigo-500 text-white'
+            : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-500 hover:text-gray-100'
+          }`}
+      >
+        <span className={`text-[13px] leading-none ${
+          v.gender === 'Female'
+            ? (isSelected ? 'text-pink-300'  : 'text-pink-400')
+            : (isSelected ? 'text-sky-300'   : 'text-sky-400')
+        }`}>
+          {v.gender === 'Female' ? '♀' : '♂'}
+        </span>
+        <span>{v.name}</span>
+        <button
+          type="button"
+          onClick={e => handlePreview(v.name, e)}
+          title={`Preview ${v.name} voice`}
+          className={`ml-0.5 transition-opacity ${
+            isSelected ? 'text-white/70 hover:text-white' : 'text-gray-500 hover:text-gray-200'
+          }`}
+        >
+          {isSpinning
+            ? <span className="inline-block w-3 h-3 border border-current/30 border-t-current rounded-full animate-spin" />
+            : <svg className="w-3 h-3" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M8 5v14l11-7z" />
+              </svg>
+          }
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-1 space-y-3">
+      {geminiVoices.length > 0 && (
+        <div>
+          <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">
+            Gemini Voices — for <code className="text-gray-400">google/*</code> models
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {geminiVoices.map(v => <VoiceChip key={v.name} v={v} />)}
+          </div>
+        </div>
+      )}
+      {openaiVoices.length > 0 && (
+        <div>
+          <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1.5">
+            OpenAI Voices — for <code className="text-gray-400">openai/*</code> models
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {openaiVoices.map(v => <VoiceChip key={v.name} v={v} />)}
+          </div>
+        </div>
+      )}
+      {audioUrl && (
+        <audio ref={audioRef} controls src={audioUrl} className="w-full h-8 mt-1" />
+      )}
+      {audioErr && (
+        <p className="text-[11px] text-red-400 mt-1 truncate">Preview failed: {audioErr}</p>
+      )}
     </div>
   )
 }
@@ -1090,6 +1255,42 @@ function ProvidersTab() {
               const current  = config[row.key] ?? defaultVal
               const isSaving = saving === row.key
               const isSaved  = saved  === row.key
+
+              // ── Voice-grid rows span full width with embedded preview ────────
+              if (row.voiceGrid) {
+                const pLang = row.previewLang ?? 'en'
+                const pModelKey = row.previewModelKey ?? 'OPENROUTER_TTS_MODEL'
+                const pProvider = ttsProvider(config, pLang === 'ar' ? 'AR' : 'EN')
+                const pModel    = config[pModelKey] || 'google/gemini-2.5-flash-preview-tts'
+                return (
+                  <div key={row.key} className="px-5 py-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <span className="text-sm text-gray-300">{row.label}</span>
+                        <code className="text-xs text-gray-600 block mt-0.5">{row.key}</code>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {isSaved  && <span className="text-xs text-green-400">Saved ✓</span>}
+                        {isSaving && <span className="text-xs text-gray-500">Saving…</span>}
+                        {current && (
+                          <span className="text-xs text-gray-400 font-mono bg-gray-800 px-2 py-0.5 rounded">
+                            {current}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <TtsVoiceGrid
+                      voices={row.voiceGrid}
+                      current={current}
+                      onChange={v => handleChange(row.key, v)}
+                      previewProvider={pProvider}
+                      previewModel={pModel}
+                      previewLang={pLang}
+                    />
+                  </div>
+                )
+              }
+
               const badge    = getProviderBadge(current)
 
               return (
@@ -2575,76 +2776,19 @@ const GEMINI_VOICE_INFO: VoiceInfo[] = GEMINI_VOICES.map(v => ({
   name: v.name, langs: ['all'], gender: v.gender,
 }))
 
+// OpenAI voices (with gender) for openai/* models via OpenRouter.
+const OPENAI_VOICE_INFO: VoiceInfo[] = OPENAI_VOICES.map(v => ({
+  name: v.name, langs: ['all'], gender: v.gender,
+}))
+
 const PROVIDER_MODEL_VOICES: Record<string, Record<string, ModelVoices>> = {
-  gemini: {
-    'gemini-2.5-flash-preview-tts': { voices: GEMINI_VOICE_INFO, defaultVoice: 'Kore' },
-    'gemini-3.1-flash-preview-tts': { voices: GEMINI_VOICE_INFO, defaultVoice: 'Kore' },
-  },
   openrouter: {
-    // Gemini TTS via OpenRouter uses OpenAI voice names (alloy…), NOT Gemini
-    // voice names — OpenRouter's /audio/speech endpoint normalizes them.
-    'google/gemini-2.5-flash-preview-tts': {
-      voices: [
-        { name: 'alloy',   langs: ['all'] },
-        { name: 'echo',    langs: ['all'] },
-        { name: 'fable',   langs: ['all'] },
-        { name: 'onyx',    langs: ['all'] },
-        { name: 'nova',    langs: ['all'] },
-        { name: 'shimmer', langs: ['all'] },
-        { name: 'coral',   langs: ['all'] },
-        { name: 'sage',    langs: ['all'] },
-      ],
-      defaultVoice: 'alloy',
-    },
-    'google/gemini-3.1-flash-preview-tts': {
-      voices: [
-        { name: 'alloy',   langs: ['all'] },
-        { name: 'echo',    langs: ['all'] },
-        { name: 'fable',   langs: ['all'] },
-        { name: 'onyx',    langs: ['all'] },
-        { name: 'nova',    langs: ['all'] },
-        { name: 'shimmer', langs: ['all'] },
-        { name: 'coral',   langs: ['all'] },
-        { name: 'sage',    langs: ['all'] },
-      ],
-      defaultVoice: 'alloy',
-    },
-    'openai/gpt-audio': {
-      voices: [
-        { name: 'alloy',   langs: ['all'] },
-        { name: 'echo',    langs: ['all'] },
-        { name: 'fable',   langs: ['all'] },
-        { name: 'onyx',    langs: ['all'] },
-        { name: 'nova',    langs: ['all'] },
-        { name: 'shimmer', langs: ['all'] },
-        { name: 'coral',   langs: ['all'] },
-        { name: 'verse',   langs: ['all'] },
-        { name: 'ballad',  langs: ['all'] },
-        { name: 'ash',     langs: ['all'] },
-        { name: 'sage',    langs: ['all'] },
-        { name: 'marin',   langs: ['all'] },
-        { name: 'cedar',   langs: ['all'] },
-      ],
-      defaultVoice: 'alloy',
-    },
-    'openai/gpt-audio-mini': {
-      voices: [
-        { name: 'alloy',   langs: ['all'] },
-        { name: 'echo',    langs: ['all'] },
-        { name: 'fable',   langs: ['all'] },
-        { name: 'onyx',    langs: ['all'] },
-        { name: 'nova',    langs: ['all'] },
-        { name: 'shimmer', langs: ['all'] },
-        { name: 'coral',   langs: ['all'] },
-        { name: 'verse',   langs: ['all'] },
-        { name: 'ballad',  langs: ['all'] },
-        { name: 'ash',     langs: ['all'] },
-        { name: 'sage',    langs: ['all'] },
-        { name: 'marin',   langs: ['all'] },
-        { name: 'cedar',   langs: ['all'] },
-      ],
-      defaultVoice: 'alloy',
-    },
+    // Gemini TTS via OpenRouter — use Gemini voice names (Kore, Charon, …).
+    'google/gemini-2.5-flash-preview-tts': { voices: GEMINI_VOICE_INFO, defaultVoice: 'Kore' },
+    'google/gemini-3.1-flash-preview-tts': { voices: GEMINI_VOICE_INFO, defaultVoice: 'Kore' },
+    // OpenAI TTS via OpenRouter — use OpenAI voice names (alloy, echo, …).
+    'openai/gpt-audio':      { voices: OPENAI_VOICE_INFO, defaultVoice: 'alloy' },
+    'openai/gpt-audio-mini': { voices: OPENAI_VOICE_INFO, defaultVoice: 'alloy' },
   },
   cartesia: {
     'sonic-3.5-2026-05-04': {
@@ -2675,7 +2819,6 @@ const PROVIDER_MODEL_VOICES: Record<string, Record<string, ModelVoices>> = {
 }
 
 const PROVIDER_MODELS: Record<string, string[]> = {
-  gemini:     ['gemini-2.5-flash-preview-tts', 'gemini-3.1-flash-preview-tts'],
   openrouter: [
     'google/gemini-2.5-flash-preview-tts',
     'google/gemini-3.1-flash-preview-tts',
@@ -2688,7 +2831,7 @@ const PROVIDER_MODELS: Record<string, string[]> = {
 }
 
 function VoicesTab() {
-  const [provider, setProvider]   = useState('gemini')
+  const [provider, setProvider]   = useState('openrouter')
   const [model, setModel]         = useState('')
   const [voice, setVoice]         = useState('')
   const [language, setLanguage]   = useState('en')
@@ -2764,7 +2907,7 @@ function VoicesTab() {
           <div>
             <label className="text-xs text-gray-500 uppercase tracking-wide block mb-1">Provider</label>
             <div className="flex gap-2 flex-wrap">
-              {['gemini', 'openrouter', 'cartesia', 'elevenlabs', 'deepgram'].map(p => (
+              {['openrouter', 'cartesia', 'elevenlabs', 'deepgram'].map(p => (
                 <button
                   key={p}
                   onClick={() => setProvider(p)}
