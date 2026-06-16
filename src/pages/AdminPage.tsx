@@ -1373,12 +1373,17 @@ const STEP_COLORS: Record<string, string> = {
 // All valid pipeline steps with friendly labels
 const ALL_STEPS: { id: string; label: string }[] = [
   { id: 'summarize',      label: 'Summarize'       },
+  { id: 'translate',      label: 'Translate'       },
   { id: 'audio_full',     label: 'Audio (full)'    },
+  { id: 'audio_full_translate', label: 'Audio (full, translated)' },
   { id: 'audio_chapters', label: 'Audio (chapters)'},
+  { id: 'audio_chapters_translate', label: 'Audio (chapters, translated)' },
   { id: 'cover',          label: 'Cover image'     },
   { id: 'alt_text',       label: 'Alt text'        },
   { id: 'mindmap',        label: 'Mind map'        },
+  { id: 'mindmap_translate', label: 'Mind map (translated)' },
   { id: 'mindmap_chapters', label: 'Mind map (chapters)' },
+  { id: 'mindmap_chapters_translate', label: 'Mind map (chapters, translated)' },
   { id: 'inject_epub',    label: 'Inject EPUB'     },
   { id: 'video',          label: 'Video'           },
 ]
@@ -1386,12 +1391,17 @@ const ALL_STEPS: { id: string; label: string }[] = [
 // Step label abbreviations for compact display
 const STEP_SHORT: Record<string, string> = {
   summarize:        'sum',
+  translate:        'tr',
   audio_full:       'aud',
+  audio_full_translate: 'aud-tr',
   audio_chapters:   'aud-ch',
+  audio_chapters_translate: 'aud-ch-tr',
   cover:            'cover',
   alt_text:         'alt',
   mindmap:          'mm',
+  mindmap_translate: 'mm-tr',
   mindmap_chapters: 'mm-ch',
+  mindmap_chapters_translate: 'mm-ch-tr',
   inject_epub:      'epub',
   video:            'video',
 }

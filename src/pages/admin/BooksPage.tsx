@@ -6,12 +6,17 @@ import { PageShell, PageHeader } from './_shared'
 
 const ALL_STEPS: { id: string; label: string }[] = [
   { id: 'summarize',        label: 'Summarize'           },
+  { id: 'translate',        label: 'Translate'           },
   { id: 'audio_full',       label: 'Audio (full)'        },
+  { id: 'audio_full_translate', label: 'Audio (full, translated)' },
   { id: 'audio_chapters',   label: 'Audio (chapters)'   },
+  { id: 'audio_chapters_translate', label: 'Audio (chapters, translated)' },
   { id: 'cover',            label: 'Cover image'         },
   { id: 'alt_text',         label: 'Alt text'            },
   { id: 'mindmap',          label: 'Mind map'            },
+  { id: 'mindmap_translate', label: 'Mind map (translated)' },
   { id: 'mindmap_chapters', label: 'Mind map (chapters)' },
+  { id: 'mindmap_chapters_translate', label: 'Mind map (chapters, translated)' },
   { id: 'inject_epub',      label: 'Inject EPUB'         },
   { id: 'video',            label: 'Video'               },
 ]
