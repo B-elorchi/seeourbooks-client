@@ -29,6 +29,46 @@ function isArabic(text: string) {
   return AR_RE.test(text)
 }
 
+function cleanErrorMessage(raw: string | null | undefined): string {
+  const msg = String(raw ?? '').trim()
+  if (!msg) return msg
+
+  // Rate limit
+  if (/429|rate.?limit|too many request/i.test(msg))
+    return 'Rate limit reached — the AI provider is busy. Retry in a moment.'
+
+  // Auth / API key
+  if (/401|403|unauthorized|forbidden|invalid.?key|api.?key/i.test(msg))
+    return 'AI provider authentication failed. Check your API key in Settings.'
+
+  // Timeout
+  if (/timeout|timed.?out|time.?out/i.test(msg))
+    return 'Request timed out — the AI provider may be slow. Retry.'
+
+  // Server / gateway errors
+  if (/502|503|504|bad gateway|service unavailable|gateway/i.test(msg))
+    return 'AI provider is temporarily unavailable. Retry in a moment.'
+  if (/500|server.?error|internal.?error/i.test(msg))
+    return 'AI provider returned a server error. Retry in a moment.'
+
+  // Network / connection
+  if (/econnrefused|enotfound|network|connection.?reset|connection.?refused/i.test(msg))
+    return 'Could not reach the AI provider. Check the server internet connection.'
+
+  // Context length
+  if (/context.?length|token.?limit|maximum.?context|too.?long/i.test(msg))
+    return 'Content is too long for the selected model. Try a shorter summary length.'
+
+  // Strip raw API URLs and tidy up
+  return msg
+    .replace(/https?:\/\/\S+/g, '')           // remove URLs
+    .replace(/openrouter[^:]*:\s*/i, '')       // remove "openrouter.ai: " prefix
+    .replace(/^Error\s+\d+:\s*/i, '')          // remove "Error 429: " prefix
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+    .slice(0, 220) || msg.slice(0, 220)
+}
+
 // Split page content into paragraphs, filter obvious OCR artifacts (very short
 // lines with no Arabic or meaningful Latin — e.g. "Gd", "Ob", "Ble").
 function parseParagraphs(content: string): string[] {
@@ -539,7 +579,7 @@ export default function PipelinePage() {
                             <p className="text-[10px] opacity-60 capitalize">{s}</p>
                             {errMsg && (s === 'failed' || s === 'partial') && (
                               <p className="text-[10px] text-red-600 mt-0.5 leading-tight line-clamp-2 break-words">
-                                {errMsg}
+                                {cleanErrorMessage(errMsg)}
                               </p>
                             )}
                           </div>
@@ -556,9 +596,10 @@ export default function PipelinePage() {
 
             {/* Step errors — shown immediately after the steps panel */}
             {r?.errors && Object.keys(r.errors).length > 0 && (() => {
-              // Only show step-level errors (not per-chapter noise like audio_chapter_0)
+              // Show step-level errors; filter per-chapter audio/mindmap noise (audio_chapter_0 etc.)
+              // but keep audio_blocked and other meaningful keys.
               const stepErrors = Object.entries(r.errors).filter(([k]) =>
-                !/_\d+$/.test(k)
+                !/^(audio|mindmap|video)_chapter_\d+$/.test(k)
               )
               if (!stepErrors.length) return null
               return (
@@ -567,8 +608,10 @@ export default function PipelinePage() {
                   <div className="space-y-1.5">
                     {stepErrors.map(([step, msg]) => (
                       <div key={step}>
-                        <span className="text-xs font-semibold text-red-700">{step}: </span>
-                        <span className="text-xs text-red-600">{String(msg)}</span>
+                        <span className="text-xs font-semibold text-red-700 capitalize">
+                          {step.replace(/_/g, ' ')}:{' '}
+                        </span>
+                        <span className="text-xs text-red-600">{cleanErrorMessage(String(msg))}</span>
                       </div>
                     ))}
                   </div>
