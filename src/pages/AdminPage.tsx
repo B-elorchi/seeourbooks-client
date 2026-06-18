@@ -185,6 +185,10 @@ const PROVIDER_GROUPS: Array<{
         key: 'CHAPTER_SUMMARY_MAX_WORDS', label: 'Max words per chapter summary — 0 = default',
         options: [], type: 'text', placeholder: '0 = default (3-5 sentences)',
       },
+      {
+        key: 'HAIKU_CONCURRENCY', label: 'Chapter concurrency (Pass 1) — parallel chapters at once',
+        options: [], type: 'text', placeholder: '10',
+      },
       // ── Summary quality check (gates audio) ───────────────────────────────
       {
         key: 'SUMMARY_QA_ENABLED', label: 'Summary coverage check — gate audio',

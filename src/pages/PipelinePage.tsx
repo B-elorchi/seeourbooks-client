@@ -182,6 +182,7 @@ function ExtractedTextReader({ pages, pageCount }: { pages: { page: number; cont
   )
 }
 
+type StatusFilter = 'all' | 'running' | 'done' | 'failed'
 type SourceFilter = 'all' | 'pdf_upload' | 'catalog' | 'custom_json'
 
 const SOURCE_TABS: { key: SourceFilter; label: string; icon: string }[] = [
@@ -209,6 +210,7 @@ function jobSource(job: { input?: { source?: string } }): string {
 export default function PipelinePage() {
   const { data: jobs = [], isLoading: loading } = usePipelineJobs()
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [retrying,   setRetrying]   = useState(false)
   const [retryMsg,   setRetryMsg]   = useState<string | null>(null)
@@ -295,9 +297,13 @@ export default function PipelinePage() {
     })
   }
 
-  const filteredJobs = sourceFilter === 'all'
-    ? jobs
-    : jobs.filter(j => jobSource(j as { input?: { source?: string } }) === sourceFilter)
+  const filteredJobs = jobs.filter(j => {
+    if (sourceFilter !== 'all' && jobSource(j as { input?: { source?: string } }) !== sourceFilter) return false
+    if (statusFilter === 'running' && j.status !== 'running' && j.status !== 'queued') return false
+    if (statusFilter === 'done'    && j.status !== 'done') return false
+    if (statusFilter === 'failed'  && j.status !== 'failed' && j.status !== 'partial' && j.status !== 'cancelled') return false
+    return true
+  })
 
   // Guard: result may be a raw JSON string on jobs stored before the JSONB codec fix.
   const rawResult = selected?.result
@@ -320,10 +326,23 @@ export default function PipelinePage() {
         {/* Header */}
         <div className="px-4 pt-4 pb-2 border-b border-gray-200">
           <h2 className="text-sm font-semibold text-gray-900 mb-2">Pipeline Jobs</h2>
-          <div className="flex gap-2 text-xs text-gray-500 mb-3">
-            <span className="text-blue-600">{jobs.filter(j => j.status === 'running').length} running</span>
-            <span className="text-green-600">{jobs.filter(j => j.status === 'done').length} done</span>
-            <span className="text-red-600">{jobs.filter(j => j.status === 'failed').length} failed</span>
+          <div className="flex gap-1.5 text-xs mb-3">
+            {([
+              { key: 'all',     label: 'All',     color: 'text-gray-500',  active: 'bg-gray-200 text-gray-800',  count: jobs.length },
+              { key: 'running', label: 'running', color: 'text-blue-600',  active: 'bg-blue-100 text-blue-700',  count: jobs.filter(j => j.status === 'running' || j.status === 'queued').length },
+              { key: 'done',    label: 'done',    color: 'text-green-600', active: 'bg-green-100 text-green-700',count: jobs.filter(j => j.status === 'done').length },
+              { key: 'failed',  label: 'failed',  color: 'text-red-500',   active: 'bg-red-100 text-red-700',   count: jobs.filter(j => j.status === 'failed' || j.status === 'partial' || j.status === 'cancelled').length },
+            ] as { key: StatusFilter; label: string; color: string; active: string; count: number }[]).map(s => (
+              <button
+                key={s.key}
+                onClick={() => setStatusFilter(prev => prev === s.key ? 'all' : s.key)}
+                className={`px-2 py-0.5 rounded-full font-medium transition-colors ${
+                  statusFilter === s.key ? s.active : `${s.color} hover:bg-gray-100`
+                }`}
+              >
+                {s.count} {s.label}
+              </button>
+            ))}
           </div>
           {/* Source filter tabs */}
           <div className="grid grid-cols-4 gap-1">
