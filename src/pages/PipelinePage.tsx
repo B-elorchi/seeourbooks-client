@@ -261,7 +261,7 @@ export default function PipelinePage() {
     setRegenRunning(true)
     setRegenMsg(null)
     try {
-      await rerunSteps(selected.id, steps)
+      await rerunSteps(selected.id, steps, true)
       const label = steps.length === 1 ? steps[0] : `${steps.length} steps`
       setRegenMsg(`Queued: ${label} ✓`)
       setTimeout(() => setRegenMsg(null), 4000)
