@@ -201,6 +201,12 @@ export interface BookCostDetails {
   jobs:           BookCostJob[]
 }
 
+export interface BookCoverPrompt {
+  book_id:       string
+  prompt:        string
+  summary_chars: number
+}
+
 export interface CostByModel {
   model:     string
   provider:  string

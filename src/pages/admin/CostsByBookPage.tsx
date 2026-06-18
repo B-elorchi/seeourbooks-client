@@ -1,10 +1,12 @@
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import {
   useAdminCostsByBook,
   useBookCostDetails,
   useInvalidateAdmin,
 } from '../../hooks/useAdmin'
+import { getBookCoverPrompt } from '../../api/admin'
 import {
   PageShell, PageHeader,
 } from './_shared'
@@ -20,11 +22,22 @@ export default function CostsByBookPage() {
   const [customOpen, setCustomOpen] = useState(false)
   const [customDays, setCustomDays] = useState('45')
   const [expandedBookId, setExpandedBookId] = useState<string | null>(null)
+  const [promptModal, setPromptModal] = useState<{ bookId: string; title: string; prompt: string; loading: boolean } | null>(null)
   const isPreset = DAYS_OPTIONS.includes(days)
 
   const { data, isLoading } = useAdminCostsByBook(days, PAGE_SIZE, offset)
   const { data: details } = useBookCostDetails(expandedBookId, days)
   const { invalidateAll } = useInvalidateAdmin()
+
+  async function openPrompt(bookId: string, title: string) {
+    setPromptModal({ bookId, title, prompt: '', loading: true })
+    try {
+      const data = await getBookCoverPrompt(bookId)
+      setPromptModal({ bookId, title, prompt: data.prompt, loading: false })
+    } catch (e) {
+      setPromptModal({ bookId, title, prompt: `Error: ${(e as Error).message}`, loading: false })
+    }
+  }
 
   function applyCustom() {
     const n = Math.max(1, Math.min(365, parseInt(customDays, 10) || 0))
@@ -143,6 +156,7 @@ export default function CostsByBookPage() {
                   <th className="text-right px-4 py-2.5">Jobs</th>
                   <th className="text-right px-4 py-2.5">Calls</th>
                   <th className="text-right px-4 py-2.5">Cost</th>
+                  <th className="px-2 py-2.5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
@@ -165,6 +179,14 @@ export default function CostsByBookPage() {
                         <td className="px-4 py-2.5 text-right font-medium text-indigo-700">
                           <span className="mr-2">${b.cost_usd.toFixed(4)}</span>
                           <i className={`ti ti-chevron-${isExpanded ? 'up' : 'down'} text-gray-400`} />
+                        </td>
+                        <td className="px-2 py-2.5 text-right">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openPrompt(b.book_id, b.title) }}
+                            className="text-[10px] px-2 py-1 rounded border border-indigo-200 text-indigo-600 hover:bg-indigo-50 transition-colors"
+                          >
+                            Prompt
+                          </button>
                         </td>
                       </tr>
                       {isExpanded && (
@@ -251,6 +273,35 @@ export default function CostsByBookPage() {
           )}
         </div>
       </Section>
+
+      {promptModal && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setPromptModal(null)}>
+          <div className="bg-white rounded-xl border border-gray-200 shadow-xl w-full max-w-3xl max-h-[80vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+              <p className="text-sm font-semibold text-gray-900 truncate pr-4">Cover prompt — {promptModal.title}</p>
+              <button onClick={() => setPromptModal(null)} className="text-gray-400 hover:text-gray-600"><i className="ti ti-x" /></button>
+            </div>
+            <div className="p-4 overflow-auto flex-1">
+              {promptModal.loading ? (
+                <p className="text-xs text-gray-400">Loading prompt…</p>
+              ) : (
+                <pre className="text-xs text-gray-700 whitespace-pre-wrap bg-gray-50 border border-gray-100 rounded-lg p-3">{promptModal.prompt}</pre>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-100">
+              <button
+                onClick={() => navigator.clipboard.writeText(promptModal.prompt)}
+                disabled={promptModal.loading}
+                className="px-3 py-1.5 text-xs rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 disabled:opacity-50"
+              >
+                Copy
+              </button>
+              <button onClick={() => setPromptModal(null)} className="px-3 py-1.5 text-xs rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50">Close</button>
+            </div>
+          </div>
+        </div>,
+        document.body,
+      )}
     </PageShell>
   )
 }

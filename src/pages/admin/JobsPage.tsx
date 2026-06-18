@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { getAdminJobs, retryJob, rerunSteps, cancelJob, deleteJob } from '../../api/admin'
+import { getAdminJobs, retryJob, rerunSteps, cancelJob, deleteJob, autoRetryCreditFailures } from '../../api/admin'
 import { PageShell, PageHeader } from './_shared'
 import StatusBadge from '../../components/StatusBadge'
 import type { PipelineJob } from '../../types'
@@ -11,6 +11,8 @@ const STEP_COLORS: Record<string, string> = {
   skipped: 'bg-gray-100 text-gray-400',
   running: 'bg-blue-50 text-blue-600',
 }
+
+const FILTER_STATUSES: string[] = ['all', 'running', 'queued', 'done', 'partial', 'failed', 'cancelled']
 
 const ALL_STEPS: { id: string; label: string }[] = [
   { id: 'summarize',        label: 'Summarize'           },
@@ -53,6 +55,9 @@ export default function JobsPage() {
   const [confirmDel, setConfirmDel] = useState<string | null>(null)
   const [rerunning,  setRerunning]  = useState<string | null>(null)
   const [jobStepSel, setJobStepSel] = useState<Record<string, Set<string>>>({})
+  const [statusFilter, setStatusFilter] = useState<string>('all')
+  const [autoRetrying, setAutoRetrying] = useState(false)
+  const [autoRetryMsg, setAutoRetryMsg] = useState<string | null>(null)
 
   async function loadJobs() {
     try { const data = await getAdminJobs(100); setJobs(data) } catch { /* silent */ }
@@ -77,6 +82,20 @@ export default function JobsPage() {
     setDeleting(jobId)
     try { await deleteJob(jobId); setConfirmDel(null); await loadJobs() } catch { /* silent */ }
     finally { setDeleting(null) }
+  }
+
+  async function handleAutoRetryCredits() {
+    setAutoRetrying(true)
+    setAutoRetryMsg(null)
+    try {
+      const res = await autoRetryCreditFailures()
+      setAutoRetryMsg(res.count > 0 ? `Re-queued ${res.count} credit-failed job(s).` : 'No credit-failed jobs to retry or key still exhausted.')
+      await loadJobs()
+    } catch (e) {
+      setAutoRetryMsg(`Error: ${(e as Error).message}`)
+    } finally {
+      setAutoRetrying(false)
+    }
   }
 
   async function handleRerun(jobId: string, steps: string[]) {
@@ -104,21 +123,72 @@ export default function JobsPage() {
         title="Jobs"
         subtitle="Monitor and manage pipeline jobs"
         action={
-          <button
-            onClick={() => { setLoading(true); loadJobs() }}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:text-gray-900 hover:border-gray-300 transition-colors"
-          >
-            <i className="ti ti-refresh text-sm" aria-hidden="true" />
-            Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleAutoRetryCredits}
+              disabled={autoRetrying}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:text-gray-900 hover:border-gray-300 transition-colors disabled:opacity-50"
+            >
+              <i className="ti ti-coin text-sm" aria-hidden="true" />
+              {autoRetrying ? 'Checking…' : 'Retry credits'}
+            </button>
+            <button
+              onClick={() => { setLoading(true); loadJobs() }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-200 text-xs text-gray-500 hover:text-gray-900 hover:border-gray-300 transition-colors"
+            >
+              <i className="ti ti-refresh text-sm" aria-hidden="true" />
+              Refresh
+            </button>
+          </div>
         }
       />
+
+      {autoRetryMsg && (
+        <div className="mb-4 px-4 py-2 rounded-lg bg-indigo-50 border border-indigo-200 text-xs text-indigo-800">
+          {autoRetryMsg}
+        </div>
+      )}
 
       {loading ? (
         <div className="p-6 text-sm text-gray-500">Loading jobs…</div>
       ) : !jobs.length ? (
         <div className="p-6 text-sm text-gray-600">No jobs yet.</div>
       ) : (
+        <>
+        {/* Status filter */}
+        <div className="flex flex-wrap items-center gap-2 mb-4">
+          {FILTER_STATUSES.map(status => {
+            const count = status === 'all'
+              ? jobs.length
+              : jobs.filter(j => j.status === status).length
+            const active = statusFilter === status
+            return (
+              <button
+                key={status}
+                onClick={() => setStatusFilter(status)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+                  active
+                    ? 'bg-indigo-600 text-white border-indigo-600'
+                    : 'bg-white text-gray-600 border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                }`}
+              >
+                <span className="capitalize">{status}</span>
+                <span className={`ml-1 px-1.5 py-0.5 rounded-full text-[10px] ${active ? 'bg-indigo-500 text-white' : 'bg-gray-100 text-gray-500'}`}>
+                  {count}
+                </span>
+              </button>
+            )
+          })}
+          {statusFilter !== 'all' && (
+            <button
+              onClick={() => setStatusFilter('all')}
+              className="text-xs text-gray-500 hover:text-gray-800 underline"
+            >
+              Clear filter
+            </button>
+          )}
+        </div>
+
         <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
           <table className="w-full text-sm">
             <thead>
@@ -133,7 +203,7 @@ export default function JobsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {jobs.map(job => {
+              {jobs.filter(job => statusFilter === 'all' || job.status === statusFilter).map(job => {
                 const jr = typeof job.result === 'string'
                   ? (() => { try { return JSON.parse(job.result as string) } catch { return null } })()
                   : job.result
@@ -317,6 +387,7 @@ export default function JobsPage() {
             </tbody>
           </table>
         </div>
+        </>
       )}
     </PageShell>
   )

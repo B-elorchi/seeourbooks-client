@@ -1,5 +1,5 @@
 import type {
-  AdminMetrics, QueuedMetrics, PipelineJob, AdminCosts, BookCostDetails,
+  AdminMetrics, QueuedMetrics, PipelineJob, AdminCosts, BookCostDetails, BookCoverPrompt,
   OpenRouterModelsResponse, OpenRouterModality,
   CatalogTablesResponse, CatalogResponse,
 } from '../types'
@@ -44,6 +44,18 @@ export async function getBookCostDetails(bookId: string, days = 0): Promise<Book
 
 export async function timeoutStuckJobs(maxAgeMinutes = 60): Promise<{ ok: boolean; timed_out: string[]; count: number; max_age_minutes: number }> {
   const res = await apiFetch(`/api/admin/jobs/timeout-stuck?max_age_minutes=${maxAgeMinutes}`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function autoRetryCreditFailures(): Promise<{ ok: boolean; retried: string[]; count: number }> {
+  const res = await apiFetch('/api/admin/jobs/auto-retry-credit-failures', { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getBookCoverPrompt(bookId: string): Promise<BookCoverPrompt> {
+  const res = await apiFetch(`/api/admin/books/${encodeURIComponent(bookId)}/cover-prompt`)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
