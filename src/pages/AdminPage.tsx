@@ -189,6 +189,22 @@ const PROVIDER_GROUPS: Array<{
         key: 'HAIKU_CONCURRENCY', label: 'Chapter concurrency (Pass 1) — parallel chapters at once',
         options: [], type: 'text', placeholder: '10',
       },
+      {
+        key: 'AUDIO_CONCURRENCY', label: 'Chapter audio concurrency — parallel TTS jobs at once',
+        options: [], type: 'text', placeholder: '4',
+      },
+      {
+        key: 'MINDMAP_CONCURRENCY', label: 'Chapter mindmap concurrency — parallel mindmaps at once',
+        options: [], type: 'text', placeholder: '6',
+      },
+      {
+        key: 'TRANSLATE_CONCURRENCY', label: 'Chapter translation concurrency — parallel translate calls',
+        options: [], type: 'text', placeholder: '8',
+      },
+      {
+        key: 'PIPELINE_MAX_RETRIES', label: 'Max auto-retries per job (QA failures + errors)',
+        options: [], type: 'text', placeholder: '8',
+      },
       // ── Summary quality check (gates audio) ───────────────────────────────
       {
         key: 'SUMMARY_QA_ENABLED', label: 'Summary coverage check — gate audio',

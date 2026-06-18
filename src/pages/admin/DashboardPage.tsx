@@ -87,10 +87,10 @@ export function Section({ title, children, action }: { title: string; children: 
 // ── Main Dashboard ────────────────────────────────────────────────────────────
 
 export default function DashboardPage() {
-  const [days, setDays] = useState(30)
+  const [days, setDays] = useState(0)
   const [customOpen, setCustomOpen] = useState(false)
   const [customDays, setCustomDays] = useState('45')
-  const isPreset = DAYS_OPTIONS.includes(days)
+  const isPreset = days === 0 || DAYS_OPTIONS.includes(days)
 
   const [queueMinutes, setQueueMinutes] = useState(10)
   const QUEUE_MINUTE_OPTIONS = [5, 10, 15, 30, 60]
@@ -167,15 +167,19 @@ export default function DashboardPage() {
         action={
           <div className="flex items-center gap-2">
             <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+              <button onClick={() => { setDays(0); setCustomOpen(false) }}
+                className={`px-3 py-1.5 transition-colors ${days === 0 && !customOpen ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                All time
+              </button>
               {DAYS_OPTIONS.map(d => (
                 <button key={d} onClick={() => { setDays(d); setCustomOpen(false) }}
-                  className={`px-3 py-1.5 transition-colors ${days === d && !customOpen ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                  className={`px-3 py-1.5 transition-colors border-l border-gray-200 ${days === d && !customOpen ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
                   {d}d
                 </button>
               ))}
               <button onClick={() => setCustomOpen(o => !o)}
-                className={`px-3 py-1.5 transition-colors border-l border-gray-200 ${(customOpen || !isPreset) ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
-                {!isPreset ? `${days}d` : 'Custom'}
+                className={`px-3 py-1.5 transition-colors border-l border-gray-200 ${(customOpen || (!isPreset && days !== 0)) ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                {!isPreset && days !== 0 ? `${days}d` : 'Custom'}
               </button>
             </div>
             {customOpen && (
@@ -243,8 +247,8 @@ export default function DashboardPage() {
 
       {/* ── Row 2: Cost KPIs ────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <KpiCard label={`Total Cost (${days}d)`} value={costs ? `$${costs.total_cost_usd.toFixed(4)}` : '—'} color="text-indigo-600" />
-        <KpiCard label="AI Calls"    value={costs?.total_calls ?? '—'} sub={`last ${days} days`} />
+        <KpiCard label={days ? `Total Cost (${days}d)` : 'Total Cost (all time)'} value={costs ? `$${costs.total_cost_usd.toFixed(4)}` : '—'} color="text-indigo-600" />
+        <KpiCard label="AI Calls"    value={costs?.total_calls ?? '—'} sub={days ? `last ${days} days` : 'all time'} />
         <KpiCard label="Top Provider"
           value={costs?.by_provider?.[0]?.provider ?? '—'}
           sub={costs?.by_provider?.[0] ? `$${costs.by_provider[0].cost_usd.toFixed(4)}` : undefined} />
