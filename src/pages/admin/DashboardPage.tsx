@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AreaChart, Area, BarChart, Bar, PieChart, Pie, Cell,
@@ -7,7 +7,7 @@ import {
 import {
   useAdminMetrics, useAdminQueuedMetrics, useAdminCosts, useAdminJobs, useUserCount,
   useCostsByBook, useCostsByUser, useDailyCosts,
-  useInvalidateAdmin,
+  useInvalidateAdmin, useTimeoutStuckJobs,
 } from '../../hooks/useAdmin'
 import { PageShell, PageHeader, Badge, timeAgo } from './_shared'
 
@@ -109,6 +109,8 @@ export default function DashboardPage() {
   const { data: byUser  = [] }                        = useCostsByUser(days)
   const { data: dailyCosts = [] }                     = useDailyCosts(days)
   const { invalidateAll }                             = useInvalidateAdmin()
+  const { mutate: timeoutStuckJobs }                  = useTimeoutStuckJobs()
+  const [stuckTimedOut, setStuckTimedOut] = useState<number | null>(null)
 
   // Status pie data
   const statusPie = metrics
@@ -141,6 +143,21 @@ export default function DashboardPage() {
     : null
 
   const recentJobs = jobs.slice(0, 8)
+
+  // Auto-timeout any job stuck in 'running' for more than 60 minutes.
+  useEffect(() => {
+    let cancelled = false
+    timeoutStuckJobs(60)
+      .then(res => {
+        if (cancelled) return
+        if (res.count > 0) {
+          setStuckTimedOut(res.count)
+          invalidateAll()
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [timeoutStuckJobs, invalidateAll])
 
   return (
     <PageShell>
@@ -185,6 +202,13 @@ export default function DashboardPage() {
           </div>
         }
       />
+
+      {stuckTimedOut !== null && stuckTimedOut > 0 && (
+        <div className="mb-4 px-4 py-2.5 rounded-lg bg-orange-50 border border-orange-200 text-xs text-orange-800">
+          <i className="ti ti-alert-circle mr-1.5" />
+          {stuckTimedOut} job{stuckTimedOut > 1 ? 's were' : ' was'} running for more than 60 minutes and marked as failed.
+        </div>
+      )}
 
       {/* ── Row 1: KPIs ────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-3 mb-6">

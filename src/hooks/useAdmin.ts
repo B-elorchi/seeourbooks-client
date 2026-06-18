@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getMetrics, getQueuedMetrics, getCosts, getAdminJobs } from '../api/admin'
+import { getMetrics, getQueuedMetrics, getCosts, getAdminJobs, getBookCostDetails, timeoutStuckJobs } from '../api/admin'
 import { apiFetch } from '../api/client'
-import type { AdminMetrics, QueuedMetrics, AdminCosts, PipelineJob } from '../types'
+import type { AdminMetrics, QueuedMetrics, AdminCosts, PipelineJob, BookCostDetails } from '../types'
 
 export interface CostByBook  { job_id: string; book_id: string; title: string; user_id?: string; cost_usd: number }
 export interface CostByUser  { user_id: string; label: string; cost_usd: number }
@@ -48,6 +48,7 @@ export const adminKeys = {
   jobs: (limit: number) => [...adminKeys.all, 'jobs', limit] as const,
   users: () => [...adminKeys.all, 'users'] as const,
   queued: (minutes: number) => [...adminKeys.all, 'queued', minutes] as const,
+  bookCost: (bookId: string, days: number) => [...adminKeys.all, 'book-cost', bookId, days] as const,
 }
 
 // Hook to fetch admin metrics
@@ -150,6 +151,24 @@ export function useAdminJobs(limit = 50) {
     staleTime: 3000,
     retry: 3,
   })
+}
+
+// Hook to fetch per-step cost details for a single book
+export function useBookCostDetails(bookId: string | null, days = 0) {
+  return useQuery<BookCostDetails>({
+    queryKey: adminKeys.bookCost(bookId ?? '', days),
+    queryFn: () => getBookCostDetails(bookId!, days),
+    enabled: !!bookId,
+    staleTime: 10_000,
+    retry: 2,
+  })
+}
+
+// Mutation to mark long-running stuck jobs as failed
+export function useTimeoutStuckJobs() {
+  return {
+    mutate: timeoutStuckJobs,
+  }
 }
 
 // Hook to fetch user count

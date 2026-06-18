@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import {
   useAdminCostsByBook,
+  useBookCostDetails,
   useInvalidateAdmin,
 } from '../../hooks/useAdmin'
 import {
@@ -18,9 +19,11 @@ export default function CostsByBookPage() {
   const [offset, setOffset] = useState(0)
   const [customOpen, setCustomOpen] = useState(false)
   const [customDays, setCustomDays] = useState('45')
+  const [expandedBookId, setExpandedBookId] = useState<string | null>(null)
   const isPreset = DAYS_OPTIONS.includes(days)
 
   const { data, isLoading } = useAdminCostsByBook(days, PAGE_SIZE, offset)
+  const { data: details } = useBookCostDetails(expandedBookId, days)
   const { invalidateAll } = useInvalidateAdmin()
 
   function applyCustom() {
@@ -143,18 +146,106 @@ export default function CostsByBookPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {rows.map(b => (
-                  <tr key={b.book_id} className="hover:bg-gray-50">
-                    <td className="px-4 py-2.5">
-                      <span className="text-gray-800 truncate max-w-[240px] block">{b.title}</span>
-                      <span className="text-[10px] text-gray-400 font-mono">ID: {b.book_id}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-gray-600 hidden sm:table-cell">{b.author || '—'}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-700">{b.total_jobs ?? 0}</td>
-                    <td className="px-4 py-2.5 text-right text-gray-700">{b.total_calls ?? 0}</td>
-                    <td className="px-4 py-2.5 text-right font-medium text-indigo-700">${b.cost_usd.toFixed(4)}</td>
-                  </tr>
-                ))}
+                {rows.map(b => {
+                  const isExpanded = expandedBookId === b.book_id
+                  return (
+                    <>
+                      <tr
+                        key={b.book_id}
+                        className="hover:bg-gray-50 cursor-pointer"
+                        onClick={() => setExpandedBookId(isExpanded ? null : b.book_id)}
+                      >
+                        <td className="px-4 py-2.5">
+                          <span className="text-gray-800 truncate max-w-[240px] block">{b.title}</span>
+                          <span className="text-[10px] text-gray-400 font-mono">ID: {b.book_id}</span>
+                        </td>
+                        <td className="px-4 py-2.5 text-gray-600 hidden sm:table-cell">{b.author || '—'}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-700">{b.total_jobs ?? 0}</td>
+                        <td className="px-4 py-2.5 text-right text-gray-700">{b.total_calls ?? 0}</td>
+                        <td className="px-4 py-2.5 text-right font-medium text-indigo-700">
+                          <span className="mr-2">${b.cost_usd.toFixed(4)}</span>
+                          <i className={`ti ti-chevron-${isExpanded ? 'up' : 'down'} text-gray-400`} />
+                        </td>
+                      </tr>
+                      {isExpanded && (
+                        <tr>
+                          <td colSpan={5} className="px-4 py-3 bg-gray-50/50">
+                            <div className="border border-gray-200 rounded-lg bg-white p-3">
+                              <p className="text-xs font-semibold text-gray-700 mb-2">Cost by step</p>
+                              {!details ? (
+                                <p className="text-xs text-gray-400">Loading…</p>
+                              ) : details.steps.length === 0 ? (
+                                <p className="text-xs text-gray-400">No step cost data.</p>
+                              ) : (
+                                <table className="w-full text-xs">
+                                  <thead>
+                                    <tr className="text-gray-500 border-b border-gray-100">
+                                      <th className="text-left py-1.5">Step</th>
+                                      <th className="text-left py-1.5">Model</th>
+                                      <th className="text-left py-1.5 hidden sm:table-cell">Provider</th>
+                                      <th className="text-right py-1.5">Calls</th>
+                                      <th className="text-right py-1.5">Cost</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {details.steps.map(s => (
+                                      <>
+                                        <tr key={s.step} className="border-b border-gray-100 bg-gray-50/50">
+                                          <td className="py-1.5 font-medium text-gray-800">{s.step}</td>
+                                          <td className="py-1.5 text-gray-400">—</td>
+                                          <td className="py-1.5 hidden sm:table-cell" />
+                                          <td className="py-1.5 text-right text-gray-700">{s.calls}</td>
+                                          <td className="py-1.5 text-right font-semibold text-indigo-700">${s.cost_usd.toFixed(4)}</td>
+                                        </tr>
+                                        {s.models.map(m => (
+                                          <tr key={`${s.step}-${m.model}`} className="border-b border-gray-50 last:border-0">
+                                            <td className="py-1.5 pl-4 text-gray-400" />
+                                            <td className="py-1.5 text-gray-700 font-mono">{m.model}</td>
+                                            <td className="py-1.5 hidden sm:table-cell text-gray-500">{m.provider}</td>
+                                            <td className="py-1.5 text-right text-gray-600">{m.calls}</td>
+                                            <td className="py-1.5 text-right font-medium text-indigo-700">${m.cost_usd.toFixed(4)}</td>
+                                          </tr>
+                                        ))}
+                                      </>
+                                    ))}
+                                  </tbody>
+                                </table>
+                              )}
+                              {details && details.jobs.length > 1 && (
+                                <>
+                                  <p className="text-xs font-semibold text-gray-700 mt-3 mb-2">Cost by job</p>
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-gray-500 border-b border-gray-100">
+                                        <th className="text-left py-1.5">Job ID</th>
+                                        <th className="text-right py-1.5">Calls</th>
+                                        <th className="text-right py-1.5">Cost</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {details.jobs.map(j => (
+                                        <tr key={j.job_id} className="border-b border-gray-50 last:border-0">
+                                          <td className="py-1.5 text-gray-700 font-mono">{j.job_id.slice(0, 12)}…</td>
+                                          <td className="py-1.5 text-right text-gray-600">{j.calls}</td>
+                                          <td className="py-1.5 text-right font-medium text-indigo-700">${j.cost_usd.toFixed(4)}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </>
+                              )}
+                              {details && (
+                                <p className="text-[10px] text-gray-400 mt-2 text-right">
+                                  Total: ${details.total_cost_usd.toFixed(4)} · {details.total_calls} calls
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  )
+                })}
               </tbody>
             </table>
           )}

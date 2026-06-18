@@ -173,6 +173,34 @@ export interface CostByStep {
   cost_usd: number
 }
 
+export interface BookCostModel {
+  model:    string
+  provider: string
+  calls:    number
+  cost_usd: number
+}
+
+export interface BookCostStep {
+  step:     string
+  calls:    number
+  cost_usd: number
+  models:   BookCostModel[]
+}
+
+export interface BookCostJob {
+  job_id:   string
+  calls:    number
+  cost_usd: number
+}
+
+export interface BookCostDetails {
+  book_id:        string
+  total_cost_usd: number
+  total_calls:    number
+  steps:          BookCostStep[]
+  jobs:           BookCostJob[]
+}
+
 export interface CostByModel {
   model:     string
   provider:  string

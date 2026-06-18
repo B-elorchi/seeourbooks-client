@@ -1,5 +1,5 @@
 import type {
-  AdminMetrics, QueuedMetrics, PipelineJob, AdminCosts,
+  AdminMetrics, QueuedMetrics, PipelineJob, AdminCosts, BookCostDetails,
   OpenRouterModelsResponse, OpenRouterModality,
   CatalogTablesResponse, CatalogResponse,
 } from '../types'
@@ -32,6 +32,18 @@ export async function getMetrics(): Promise<AdminMetrics> {
 
 export async function getQueuedMetrics(minutes = 10): Promise<QueuedMetrics> {
   const res = await apiFetch(`/api/admin/metrics/queued?minutes=${minutes}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function getBookCostDetails(bookId: string, days = 0): Promise<BookCostDetails> {
+  const res = await apiFetch(`/api/admin/costs/books/${encodeURIComponent(bookId)}?days=${days}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function timeoutStuckJobs(maxAgeMinutes = 60): Promise<{ ok: boolean; timed_out: string[]; count: number; max_age_minutes: number }> {
+  const res = await apiFetch(`/api/admin/jobs/timeout-stuck?max_age_minutes=${maxAgeMinutes}`, { method: 'POST' })
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
