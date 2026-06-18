@@ -313,6 +313,8 @@ const PROVIDER_GROUPS: Array<{
       { key: 'IMAGE_MODEL_AR', label: 'Model (AR)', type: 'combo', placeholder: 'Pick or type any OpenRouter / OpenAI model name…', options: [g('🟢 OpenAI — Native API', OPENAI_IMG_MODELS), g('🔀 OpenRouter → FLUX / Gemini / SD', OR_IMG_MODELS)] },
       { key: 'IMAGE_QUALITY',  label: 'Quality',   options: ['high', 'standard', 'auto'] },
       { key: 'IMAGE_SIZE',     label: 'Size',      options: ['1024x1536', '1024x1024', '1536x1024', 'auto', '1024x1792', '1792x1024', '512x512'] },
+      { key: 'IMAGE_PROMPT_MAX_CHARS',  label: 'Max cover prompt chars (OpenRouter image context ceiling)', options: [], type: 'text', placeholder: '3000' },
+      { key: 'IMAGE_SUMMARY_MAX_CHARS', label: 'Max summary chars inside cover prompt',                    options: [], type: 'text', placeholder: '1200' },
     ],
   },
   {

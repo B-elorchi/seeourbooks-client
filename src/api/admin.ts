@@ -1,5 +1,5 @@
 import type {
-  AdminMetrics, PipelineJob, AdminCosts,
+  AdminMetrics, QueuedMetrics, PipelineJob, AdminCosts,
   OpenRouterModelsResponse, OpenRouterModality,
   CatalogTablesResponse, CatalogResponse,
 } from '../types'
@@ -30,6 +30,12 @@ export async function getMetrics(): Promise<AdminMetrics> {
   return res.json()
 }
 
+export async function getQueuedMetrics(minutes = 10): Promise<QueuedMetrics> {
+  const res = await apiFetch(`/api/admin/metrics/queued?minutes=${minutes}`)
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 // ── Jobs (admin view — full detail) ──────────────────────────────────────────
 
 export async function getAdminJobs(limit = 100): Promise<PipelineJob[]> {
@@ -44,8 +50,13 @@ export async function retryJob(jobId: string): Promise<{ job_id: string; status:
   return res.json()
 }
 
-export async function rerunSteps(jobId: string, steps: string[]): Promise<{ job_id: string; status: string }> {
-  const res = await apiFetch(`/api/admin/jobs/${jobId}/rerun`, {
+export async function rerunSteps(
+  jobId: string,
+  steps: string[],
+  force = false,
+): Promise<{ job_id: string; status: string; rerun_steps?: string[]; skipped_done?: string[]; message?: string }> {
+  const qs = force ? '?force=true' : ''
+  const res = await apiFetch(`/api/admin/jobs/${jobId}/rerun${qs}`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({ steps }),

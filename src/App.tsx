@@ -15,6 +15,8 @@ import AdminUsers       from './pages/admin/UsersPage'
 import AdminAnalytics   from './pages/admin/AnalyticsPage'
 import AdminCatalog     from './pages/admin/CatalogPage'
 import AdminSettings    from './pages/admin/SettingsPage'
+import CostsByBookPage  from './pages/admin/CostsByBookPage'
+import CostsByUserPage  from './pages/admin/CostsByUserPage'
 
 import { AuthProvider, useAuth } from './auth/AuthContext'
 import ProtectedRoute   from './auth/ProtectedRoute'
@@ -45,9 +47,11 @@ export default function App() {
             <Route path="/admin/jobs"      element={<ProtectedRoute requireAdmin><AdminJobs /></ProtectedRoute>} />
             <Route path="/admin/books"     element={<ProtectedRoute requireAdmin><AdminBooks /></ProtectedRoute>} />
             <Route path="/admin/users"     element={<ProtectedRoute requireAdmin><AdminUsers /></ProtectedRoute>} />
-            <Route path="/admin/analytics" element={<ProtectedRoute requireAdmin><AdminAnalytics /></ProtectedRoute>} />
-            <Route path="/admin/catalog"   element={<ProtectedRoute requireAdmin><AdminCatalog /></ProtectedRoute>} />
-            <Route path="/admin/settings"  element={<ProtectedRoute requireAdmin><AdminSettings /></ProtectedRoute>} />
+            <Route path="/admin/analytics"   element={<ProtectedRoute requireAdmin><AdminAnalytics /></ProtectedRoute>} />
+            <Route path="/admin/costs/books" element={<ProtectedRoute requireAdmin><CostsByBookPage /></ProtectedRoute>} />
+            <Route path="/admin/costs/users" element={<ProtectedRoute requireAdmin><CostsByUserPage /></ProtectedRoute>} />
+            <Route path="/admin/catalog"     element={<ProtectedRoute requireAdmin><AdminCatalog /></ProtectedRoute>} />
+            <Route path="/admin/settings"    element={<ProtectedRoute requireAdmin><AdminSettings /></ProtectedRoute>} />
           </Route>
         </Routes>
       </BrowserRouter>

@@ -11,9 +11,11 @@ const mainNav = [
 ]
 
 const manageNav = [
-  { to: '/admin/users',    label: 'Users & Keys', icon: 'ti-users'     },
-  { to: '/admin/analytics',label: 'Analytics',    icon: 'ti-chart-bar' },
-  { to: '/admin/catalog',  label: 'Database',     icon: 'ti-database'  },
+  { to: '/admin/users',       label: 'Users & Keys', icon: 'ti-users'      },
+  { to: '/admin/costs/books', label: 'Costs by Book', icon: 'ti-book-2'    },
+  { to: '/admin/costs/users', label: 'Costs by User', icon: 'ti-user-dollar' },
+  { to: '/admin/analytics',   label: 'Analytics',    icon: 'ti-chart-bar'  },
+  { to: '/admin/catalog',     label: 'Database',     icon: 'ti-database'   },
 ]
 
 const configNav = [

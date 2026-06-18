@@ -5,13 +5,13 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from 'recharts'
 import {
-  useAdminMetrics, useAdminCosts, useAdminJobs, useUserCount,
+  useAdminMetrics, useAdminQueuedMetrics, useAdminCosts, useAdminJobs, useUserCount,
   useCostsByBook, useCostsByUser, useDailyCosts,
   useInvalidateAdmin,
 } from '../../hooks/useAdmin'
 import { PageShell, PageHeader, Badge, timeAgo } from './_shared'
 
-const DAYS_OPTIONS = [7, 14, 30, 90]
+export const DAYS_OPTIONS = [7, 14, 30, 90]
 
 const STATUS_COLORS: Record<string, string> = {
   done:      '#10b981',
@@ -22,11 +22,11 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled: '#6b7280',
 }
 
-const CHART_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#a78bfa', '#ec4899', '#14b8a6']
+export const CHART_COLORS = ['#6366f1', '#10b981', '#f59e0b', '#ef4444', '#3b82f6', '#a78bfa', '#ec4899', '#14b8a6']
 
 // ── Tooltip helpers ──────────────────────────────────────────────────────────
 
-function UsdTooltip({ active, payload, label }: { active?: boolean; payload?: {value: number}[]; label?: string }) {
+export function UsdTooltip({ active, payload, label }: { active?: boolean; payload?: {value: number}[]; label?: string }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 shadow text-xs">
@@ -36,7 +36,7 @@ function UsdTooltip({ active, payload, label }: { active?: boolean; payload?: {v
   )
 }
 
-function CountTooltip({ active, payload, label }: { active?: boolean; payload?: {value: number}[]; label?: string }) {
+export function CountTooltip({ active, payload, label }: { active?: boolean; payload?: {value: number}[]; label?: string }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 shadow text-xs">
@@ -46,7 +46,7 @@ function CountTooltip({ active, payload, label }: { active?: boolean; payload?: 
   )
 }
 
-function PieTooltip({ active, payload }: { active?: boolean; payload?: {name: string; value: number}[] }) {
+export function PieTooltip({ active, payload }: { active?: boolean; payload?: {name: string; value: number}[] }) {
   if (!active || !payload?.length) return null
   return (
     <div className="bg-white border border-gray-200 rounded-lg px-3 py-2 shadow text-xs">
@@ -58,7 +58,7 @@ function PieTooltip({ active, payload }: { active?: boolean; payload?: {name: st
 
 // ── KPI card ─────────────────────────────────────────────────────────────────
 
-function KpiCard({ label, value, color = 'text-gray-900', sub }: {
+export function KpiCard({ label, value, color = 'text-gray-900', sub }: {
   label: string; value: string | number; color?: string; sub?: string
 }) {
   return (
@@ -72,7 +72,7 @@ function KpiCard({ label, value, color = 'text-gray-900', sub }: {
 
 // ── Section wrapper ───────────────────────────────────────────────────────────
 
-function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+export function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
@@ -92,6 +92,9 @@ export default function DashboardPage() {
   const [customDays, setCustomDays] = useState('45')
   const isPreset = DAYS_OPTIONS.includes(days)
 
+  const [queueMinutes, setQueueMinutes] = useState(10)
+  const QUEUE_MINUTE_OPTIONS = [5, 10, 15, 30, 60]
+
   function applyCustom() {
     const n = Math.max(1, Math.min(365, parseInt(customDays, 10) || 0))
     if (n > 0) { setDays(n); setCustomDays(String(n)) }
@@ -99,6 +102,7 @@ export default function DashboardPage() {
 
   const { data: jobs = [],   isLoading: jobsLoading } = useAdminJobs(100)
   const { data: metrics }                              = useAdminMetrics()
+  const { data: queued }                               = useAdminQueuedMetrics(queueMinutes)
   const { data: costs }                               = useAdminCosts(days)
   const { data: userCount }                           = useUserCount()
   const { data: byBook  = [] }                        = useCostsByBook(days)
@@ -193,6 +197,24 @@ export default function DashboardPage() {
         <KpiCard label="Success Rate" value={successRate !== null ? `${successRate}%` : '—'}
           color={successRate !== null ? (successRate >= 80 ? 'text-green-600' : successRate >= 60 ? 'text-orange-500' : 'text-red-600') : 'text-gray-900'} />
         <KpiCard label="API Users"   value={typeof userCount === 'number' ? userCount : '—'} />
+      </div>
+
+      {/* ── Row 1b: Queue snapshot (live) ───────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
+        <KpiCard label={`Queued (last ${queueMinutes} min)`} value={queued?.queued_last_n_minutes ?? '—'} color="text-violet-600" />
+        <KpiCard label="Queued with progress" value={queued?.queued_with_progress ?? '—'} color="text-indigo-600"
+          sub="any step done / partial" />
+        <div className="bg-white border border-gray-200 rounded-xl p-4 flex flex-col justify-center">
+          <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Queue window</p>
+          <div className="flex rounded-lg border border-gray-200 overflow-hidden text-xs">
+            {QUEUE_MINUTE_OPTIONS.map(m => (
+              <button key={m} onClick={() => setQueueMinutes(m)}
+                className={`px-3 py-1.5 transition-colors ${queueMinutes === m ? 'bg-indigo-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>
+                {m}m
+              </button>
+            ))}
+          </div>
+        </div>
       </div>
 
       {/* ── Row 2: Cost KPIs ────────────────────────────────────────────────── */}

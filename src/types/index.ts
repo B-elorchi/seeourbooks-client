@@ -153,6 +153,13 @@ export interface AdminMetrics {
   queued:  number
 }
 
+export interface QueuedMetrics {
+  minutes:                 number
+  queued_last_n_minutes:   number
+  queued_with_progress:    number
+  queued_total:            number
+}
+
 export interface CostByProvider {
   provider: string
   calls:    number
