@@ -170,6 +170,25 @@ const PROVIDER_GROUPS: Array<{
     ],
   },
   {
+    title: 'Pipeline Steps',
+    rows: [
+      { key: 'PIPELINE_STEP_SUMMARIZE',                label: 'Summarize',                  options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_TRANSLATE',                label: 'Translate',                  options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_AUDIO_FULL',               label: 'Audio — full book',          options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_AUDIO_FULL_TRANSLATE',     label: 'Audio — full book (translated)', options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_AUDIO_CHAPTERS',           label: 'Audio — chapters',           options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_AUDIO_CHAPTERS_TRANSLATE', label: 'Audio — chapters (translated)', options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_COVER',                    label: 'Cover image',                options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_ALTTEXT',                  label: 'Alt text',                   options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_MINDMAP',                  label: 'Mind map — full book',       options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_MINDMAP_TRANSLATE',        label: 'Mind map — full book (translated)', options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_MINDMAP_CHAPTERS',         label: 'Mind map — chapters',        options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_MINDMAP_CHAPTERS_TRANSLATE', label: 'Mind map — chapters (translated)', options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_INJECT_EPUB',              label: 'Inject EPUB',                options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_VIDEO',                    label: 'Video',                      options: ['true', 'false'] },
+    ],
+  },
+  {
     title: 'Mind Map',
     rows: [
       { key: 'MINDMAP_FORMAT',           label: 'Output format',               options: ['mermaid', 'json'] },
@@ -248,6 +267,40 @@ const PROVIDER_GROUPS: Array<{
         key: 'OPENROUTER_TTS_VOICE_AR', label: 'OpenRouter TTS voice (AR) — click ▶ to preview',
         options: [], voiceGrid: { provider: 'openrouter', modelKey: 'OPENROUTER_TTS_MODEL', lang: 'ar' },
         showIf: c => ttsProvider(c, 'AR') === 'openrouter',
+      },
+
+      // Gemini TTS style / profile (applies to native Gemini and OpenRouter Google models).
+      {
+        key: 'GEMINI_TTS_AUDIO_STYLE', label: 'Gemini audio style',
+        options: ['single', 'multi', 'podcast', 'audiobook', 'news', 'bedtime', 'custom'], type: 'combo', placeholder: 'single',
+        showIf: c => ttsUsesProvider(c, 'gemini') || ttsUsesProvider(c, 'openrouter'),
+      },
+      {
+        key: 'GEMINI_TTS_SPEAKER1_VOICE', label: 'Speaker 1 voice (multi/podcast)',
+        options: GEMINI_VOICES.map(v => v.name), type: 'combo', placeholder: 'Kore',
+        labelMap: Object.fromEntries(GEMINI_VOICES.map(v => [v.name, `${v.name} — ${genderSymbol(v.gender)} ${genderLabel(v.gender)}`])),
+        showIf: c => (ttsUsesProvider(c, 'gemini') || ttsUsesProvider(c, 'openrouter')) && (c.GEMINI_TTS_AUDIO_STYLE === 'multi' || c.GEMINI_TTS_AUDIO_STYLE === 'podcast'),
+      },
+      {
+        key: 'GEMINI_TTS_SPEAKER2_VOICE', label: 'Speaker 2 voice (multi/podcast)',
+        options: GEMINI_VOICES.map(v => v.name), type: 'combo', placeholder: 'Puck',
+        labelMap: Object.fromEntries(GEMINI_VOICES.map(v => [v.name, `${v.name} — ${genderSymbol(v.gender)} ${genderLabel(v.gender)}`])),
+        showIf: c => (ttsUsesProvider(c, 'gemini') || ttsUsesProvider(c, 'openrouter')) && (c.GEMINI_TTS_AUDIO_STYLE === 'multi' || c.GEMINI_TTS_AUDIO_STYLE === 'podcast'),
+      },
+      {
+        key: 'GEMINI_TTS_SPEAKER1_NAME', label: 'Speaker 1 name (multi/podcast)',
+        options: [], type: 'text', placeholder: 'Host',
+        showIf: c => (ttsUsesProvider(c, 'gemini') || ttsUsesProvider(c, 'openrouter')) && (c.GEMINI_TTS_AUDIO_STYLE === 'multi' || c.GEMINI_TTS_AUDIO_STYLE === 'podcast'),
+      },
+      {
+        key: 'GEMINI_TTS_SPEAKER2_NAME', label: 'Speaker 2 name (multi/podcast)',
+        options: [], type: 'text', placeholder: 'Guest',
+        showIf: c => (ttsUsesProvider(c, 'gemini') || ttsUsesProvider(c, 'openrouter')) && (c.GEMINI_TTS_AUDIO_STYLE === 'multi' || c.GEMINI_TTS_AUDIO_STYLE === 'podcast'),
+      },
+      {
+        key: 'GEMINI_TTS_STYLE_PROMPT', label: 'Custom style prompt (custom / override)',
+        options: [], type: 'text', placeholder: 'e.g. Read dramatically, like a movie trailer.',
+        showIf: c => ttsUsesProvider(c, 'gemini') || ttsUsesProvider(c, 'openrouter'),
       },
     ],
   },

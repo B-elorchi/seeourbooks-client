@@ -11,6 +11,7 @@ export interface PipelineOptions {
   style:  string   // 'narrative' | 'bullets' | 'academic'
   length_preset?: 'small' | 'medium' | 'large' | 'custom' | null
   max_chars?:     number | null
+  audio_style?:   'single' | 'multi' | 'podcast' | 'audiobook' | 'news' | 'bedtime' | 'custom' | null
 }
 
 export interface PipelineReq {
