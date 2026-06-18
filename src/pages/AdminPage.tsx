@@ -40,7 +40,7 @@ const OR_GPT    = GPT_CHAT_MODELS.map(m => `openai/${m}`)
 //               picking it reveals a text input where the user types any value
 type OptGroup = { group: string; items: string[] }
 type OptionList = Array<string | OptGroup>
-type RowType = 'text' | 'combo'
+type RowType = 'text' | 'combo' | 'fallback'
 
 // Helpers to build grouped lists cleanly
 const g = (group: string, items: string[]): OptGroup => ({ group, items })
@@ -140,6 +140,14 @@ const PROVIDER_GROUPS: Array<{
           g('🔀 OpenRouter → OpenAI',    OR_GPT),
           g('🟣 Anthropic — Native API', CLAUDE_MODELS),
           g('🔀 OpenRouter → Anthropic',  OR_CLAUDE),
+        ],
+      },
+      {
+        key: 'MODEL_HAIKU', label: 'Quality review model (Pass 3 — polish & tashkeel)',
+        options: [
+          g('🔀 OpenRouter → Anthropic',  OR_CLAUDE),
+          g('🔀 OpenRouter → OpenAI',     OR_GPT),
+          g('🟣 Anthropic — Native API',  CLAUDE_MODELS),
         ],
       },
       {
@@ -561,36 +569,87 @@ const PROVIDER_GROUPS: Array<{
         options: ['true', 'false'],
       },
       {
-        // Optional per-model overrides — comma-separated list of fallback models
-        // tried in order when the primary fails with a recoverable error
-        // (credit out, rate-limit, 5xx, timeout). Leave blank to use the
-        // built-in default chain in ai_client.py.
+        // Per-model fallback chains — tried in order when the primary model
+        // fails (credit exhausted, rate-limit, 5xx, timeout).
+        // Key = FALLBACK_{primary-model-name} as stored in provider_config.
         key: 'FALLBACK_claude-haiku-4-5-20251001',
-        label: 'Fallback chain — Haiku',
-        options: [],
-        type: 'text',
-        placeholder: 'anthropic/claude-haiku-4-5, openai/gpt-4.1-mini, gpt-4.1-mini',
+        label: 'Fallback chain — Haiku (direct Anthropic)',
+        type: 'fallback',
+        options: [
+          g('🔀 OpenRouter → Anthropic', OR_CLAUDE),
+          g('🔀 OpenRouter → OpenAI',    OR_GPT),
+          g('🟣 Anthropic — Native API', CLAUDE_MODELS),
+        ],
+      },
+      {
+        key: 'FALLBACK_anthropic/claude-haiku-4-5',
+        label: 'Fallback chain — Haiku (OpenRouter)',
+        type: 'fallback',
+        options: [
+          g('🔀 OpenRouter → Anthropic', OR_CLAUDE),
+          g('🔀 OpenRouter → OpenAI',    OR_GPT),
+          g('🟣 Anthropic — Native API', CLAUDE_MODELS),
+        ],
+      },
+      {
+        key: 'FALLBACK_anthropic/claude-sonnet-4-5',
+        label: 'Fallback chain — Sonnet (OpenRouter)',
+        type: 'fallback',
+        options: [
+          g('🔀 OpenRouter → Anthropic', OR_CLAUDE),
+          g('🔀 OpenRouter → OpenAI',    OR_GPT),
+          g('🟣 Anthropic — Native API', CLAUDE_MODELS),
+        ],
       },
       {
         key: 'FALLBACK_claude-sonnet-4-6',
-        label: 'Fallback chain — Sonnet',
-        options: [],
-        type: 'text',
-        placeholder: 'anthropic/claude-sonnet-4-6, openai/gpt-4.1, gpt-4.1',
+        label: 'Fallback chain — Sonnet (direct Anthropic)',
+        type: 'fallback',
+        options: [
+          g('🔀 OpenRouter → Anthropic', OR_CLAUDE),
+          g('🔀 OpenRouter → OpenAI',    OR_GPT),
+          g('🟣 Anthropic — Native API', CLAUDE_MODELS),
+        ],
+      },
+      {
+        key: 'FALLBACK_anthropic/claude-opus-4-5',
+        label: 'Fallback chain — Opus (OpenRouter)',
+        type: 'fallback',
+        options: [
+          g('🔀 OpenRouter → Anthropic', OR_CLAUDE),
+          g('🔀 OpenRouter → OpenAI',    OR_GPT),
+          g('🟣 Anthropic — Native API', CLAUDE_MODELS),
+        ],
       },
       {
         key: 'FALLBACK_claude-opus-4-7',
-        label: 'Fallback chain — Opus',
-        options: [],
-        type: 'text',
-        placeholder: 'anthropic/claude-opus-4-7, openai/gpt-4.1, gpt-4.1',
+        label: 'Fallback chain — Opus (direct Anthropic)',
+        type: 'fallback',
+        options: [
+          g('🔀 OpenRouter → Anthropic', OR_CLAUDE),
+          g('🔀 OpenRouter → OpenAI',    OR_GPT),
+          g('🟣 Anthropic — Native API', CLAUDE_MODELS),
+        ],
+      },
+      {
+        key: 'FALLBACK_openai/gpt-4.1-mini',
+        label: 'Fallback chain — GPT-4.1-mini (OpenRouter)',
+        type: 'fallback',
+        options: [
+          g('🔀 OpenRouter → OpenAI',    OR_GPT),
+          g('🔀 OpenRouter → Anthropic', OR_CLAUDE),
+          g('🟣 Anthropic — Native API', CLAUDE_MODELS),
+        ],
       },
       {
         key: 'FALLBACK_gpt-4.1-mini',
-        label: 'Fallback chain — gpt-4.1-mini',
-        options: [],
-        type: 'text',
-        placeholder: 'openai/gpt-4.1-mini, anthropic/claude-haiku-4-5, claude-haiku-4-5',
+        label: 'Fallback chain — GPT-4.1-mini (direct OpenAI)',
+        type: 'fallback',
+        options: [
+          g('🔀 OpenRouter → OpenAI',    OR_GPT),
+          g('🔀 OpenRouter → Anthropic', OR_CLAUDE),
+          g('🟣 Anthropic — Native API', CLAUDE_MODELS),
+        ],
       },
     ],
   },
@@ -1079,6 +1138,67 @@ function TtsVoiceGrid({
 }
 
 
+// ── Fallback chain editor ──────────────────────────────────────────────────────
+// Shows each fallback model as a numbered chip; a dropdown appends new ones.
+
+function FallbackModelChips({
+  value, options, onChange,
+}: {
+  value: string
+  options: OptionList
+  onChange: (v: string) => void
+}) {
+  const chips = value.split(',').map(s => s.trim()).filter(Boolean)
+
+  function remove(i: number) {
+    onChange(chips.filter((_, j) => j !== i).join(', '))
+  }
+
+  function add(model: string) {
+    if (!model || chips.includes(model)) return
+    onChange([...chips, model].join(', '))
+  }
+
+  return (
+    <div className="flex flex-col gap-2 w-[380px]">
+      {chips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {chips.map((chip, i) => (
+            <span
+              key={i}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-indigo-900/60 text-indigo-200 text-xs font-mono border border-indigo-700"
+            >
+              <span className="opacity-40 text-[10px] mr-0.5">{i + 1}</span>
+              {chip}
+              <button
+                onClick={() => remove(i)}
+                title="Remove"
+                className="ml-0.5 text-indigo-400 hover:text-red-400 transition-colors leading-none"
+              >×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <select
+        value=""
+        onChange={e => { add(e.target.value); (e.target as HTMLSelectElement).value = '' }}
+        className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:border-indigo-500 max-w-[280px]"
+      >
+        <option value="" disabled>+ Add fallback model…</option>
+        {options.map(opt =>
+          typeof opt === 'string'
+            ? <option key={opt} value={opt}>{opt}</option>
+            : (
+              <optgroup key={opt.group} label={opt.group}>
+                {opt.items.map(o => <option key={o} value={o}>{o}</option>)}
+              </optgroup>
+            )
+        )}
+      </select>
+    </div>
+  )
+}
+
 // ── Providers tab ─────────────────────────────────────────────────────────────
 
 function ProvidersTab() {
@@ -1160,7 +1280,7 @@ function ProvidersTab() {
     }
 
     const CHAT_ROW_KEYS = new Set([
-      'MODEL_CHUNK', 'MODEL_SONNET', 'MODEL_OPUS', 'MODEL_MINDMAP',
+      'MODEL_CHUNK', 'MODEL_HAIKU', 'MODEL_SONNET', 'MODEL_OPUS', 'MODEL_MINDMAP',
       // DOC_AI_MODEL: documents pipeline summary + structured JSON.
       // Inherits the same searchable live-OpenRouter combo treatment.
       'DOC_AI_MODEL',
@@ -1329,6 +1449,12 @@ function ProvidersTab() {
                         placeholder={row.placeholder ?? 'Pick or search a model…'}
                         onChange={v => handleChange(row.key, v)}
                         labelMap={row.labelMap}
+                      />
+                    ) : row.type === 'fallback' ? (
+                      <FallbackModelChips
+                        value={current}
+                        options={row.options}
+                        onChange={v => handleChange(row.key, v)}
                       />
                     ) : (
                     <select
