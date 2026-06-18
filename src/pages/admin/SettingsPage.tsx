@@ -174,6 +174,8 @@ const PROVIDER_GROUPS: Array<{
     rows: [
       { key: 'PIPELINE_STEP_SUMMARIZE',                label: 'Summarize',                  options: ['true', 'false'] },
       { key: 'PIPELINE_STEP_TRANSLATE',                label: 'Translate',                  options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_TTS',                      label: 'Audio — master switch (TTS)', options: ['true', 'false'] },
+      { key: 'PIPELINE_STEP_AUDIO_PROCESSING',         label: 'Audio — post-processing',    options: ['true', 'false'] },
       { key: 'PIPELINE_STEP_AUDIO_FULL',               label: 'Audio — full book',          options: ['true', 'false'] },
       { key: 'PIPELINE_STEP_AUDIO_FULL_TRANSLATE',     label: 'Audio — full book (translated)', options: ['true', 'false'] },
       { key: 'PIPELINE_STEP_AUDIO_CHAPTERS',           label: 'Audio — chapters',           options: ['true', 'false'] },
@@ -326,18 +328,6 @@ const PROVIDER_GROUPS: Array<{
     title: 'Storage',
     rows: [
       { key: 'STORAGE_PROVIDER', label: 'Provider', options: ['spaces', 'minio'] },
-    ],
-  },
-  {
-    title: 'Pipeline Steps',
-    rows: [
-      { key: 'PIPELINE_STEP_TTS',              label: 'Audio (TTS)',      options: ['true', 'false'] },
-      { key: 'PIPELINE_STEP_COVER',            label: 'Cover Image',      options: ['true', 'false'] },
-      { key: 'PIPELINE_STEP_MINDMAP',          label: 'Mind Map',         options: ['true', 'false'] },
-      { key: 'PIPELINE_STEP_ALTTEXT',          label: 'Alt Text',         options: ['true', 'false'] },
-      { key: 'PIPELINE_STEP_AUDIO_PROCESSING', label: 'Audio Processing', options: ['true', 'false'] },
-      { key: 'PIPELINE_STEP_INJECT_EPUB',      label: 'Inject EPUB',      options: ['true', 'false'] },
-      { key: 'PIPELINE_STEP_VIDEO',            label: 'Video',            options: ['true', 'false'] },
     ],
   },
   {
