@@ -340,6 +340,12 @@ const PROVIDER_GROUPS: Array<{
         visibleWhen: c => ttsUsesProvider(c, 'gemini'),
       },
       {
+        key: 'TTS_MAX_CHARS_GEMINI',
+        label: 'Gemini chars per request — higher = fewer chunks = no mid-audio tone change',
+        options: [], type: 'text', placeholder: '8000',
+        visibleWhen: c => ttsUsesProvider(c, 'gemini') || ttsUsesProvider(c, 'openrouter'),
+      },
+      {
         key: 'GEMINI_TTS_VOICE', label: 'Gemini TTS voice',
         options: GEMINI_VOICES.map(v => v.name),
         type: 'combo',
