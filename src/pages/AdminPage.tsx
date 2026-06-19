@@ -1623,7 +1623,7 @@ function JobsTab() {
     const key = steps.length === ALL_STEPS.length ? `${jobId}:__all__` : `${jobId}:sel`
     setRerunning(key)
     try {
-      await rerunSteps(jobId, steps)
+      await rerunSteps(jobId, steps, true)  // force=true so already-done steps are regenerated
       // Clear selection for this job after queuing
       setJobStepSel(prev => { const n = {...prev}; delete n[jobId]; return n })
       await loadJobs()
