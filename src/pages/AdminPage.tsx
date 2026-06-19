@@ -341,8 +341,14 @@ const PROVIDER_GROUPS: Array<{
       },
       {
         key: 'TTS_MAX_CHARS_GEMINI',
-        label: 'Gemini chars per request — higher = fewer chunks = no mid-audio tone change',
+        label: 'Gemini chars per request (EN) — higher = fewer chunks = no mid-audio tone change',
         options: [], type: 'text', placeholder: '8000',
+        visibleWhen: c => ttsUsesProvider(c, 'gemini') || ttsUsesProvider(c, 'openrouter'),
+      },
+      {
+        key: 'TTS_MAX_CHARS_GEMINI_AR',
+        label: 'Gemini chars per request (AR) — keep lower; Arabic uses more tokens (avoids cut-off audio)',
+        options: [], type: 'text', placeholder: '4000',
         visibleWhen: c => ttsUsesProvider(c, 'gemini') || ttsUsesProvider(c, 'openrouter'),
       },
       {
