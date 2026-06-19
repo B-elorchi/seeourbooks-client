@@ -244,6 +244,11 @@ const PROVIDER_GROUPS: Array<{
         key: 'TARGET_LANG_AUDIO_ENABLED', label: 'Also generate audio in the translated language',
         options: ['false', 'true'],
       },
+      {
+        key: 'ARABIC_TASHKEEL_ENABLED',
+        label: 'Arabic tashkeel (full diacritics) — improves TTS pronunciation accuracy',
+        options: ['true', 'false'],
+      },
     ],
   },
   {
