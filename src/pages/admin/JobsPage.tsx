@@ -102,7 +102,7 @@ export default function JobsPage() {
     const key = steps.length === ALL_STEPS.length ? `${jobId}:__all__` : `${jobId}:sel`
     setRerunning(key)
     try {
-      await rerunSteps(jobId, steps)
+      await rerunSteps(jobId, steps, true)
       setJobStepSel(prev => { const n = {...prev}; delete n[jobId]; return n })
       await loadJobs()
     } catch { /* silent */ }

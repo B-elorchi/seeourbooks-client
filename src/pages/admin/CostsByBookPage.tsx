@@ -16,6 +16,17 @@ import {
 
 const PAGE_SIZE = 50
 
+function fmtDur(sec: number | null | undefined): string {
+  if (!sec) return '—'
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`
+  const h = Math.floor(m / 60)
+  const rm = m % 60
+  return rm ? `${h}h ${rm}m` : `${h}h`
+}
+
 export default function CostsByBookPage() {
   const [days, setDays] = useState(0)
   const [offset, setOffset] = useState(0)
@@ -206,6 +217,7 @@ export default function CostsByBookPage() {
                                       <th className="text-left py-1.5">Model</th>
                                       <th className="text-left py-1.5 hidden sm:table-cell">Provider</th>
                                       <th className="text-right py-1.5">Calls</th>
+                                      <th className="text-right py-1.5">Time</th>
                                       <th className="text-right py-1.5">Cost</th>
                                     </tr>
                                   </thead>
@@ -217,6 +229,7 @@ export default function CostsByBookPage() {
                                           <td className="py-1.5 text-gray-400">—</td>
                                           <td className="py-1.5 hidden sm:table-cell" />
                                           <td className="py-1.5 text-right text-gray-700">{s.calls}</td>
+                                          <td className="py-1.5 text-right text-gray-500 font-mono">{fmtDur(s.duration_sec)}</td>
                                           <td className="py-1.5 text-right font-semibold text-indigo-700">${s.cost_usd.toFixed(4)}</td>
                                         </tr>
                                         {s.models.map(m => (
@@ -225,6 +238,7 @@ export default function CostsByBookPage() {
                                             <td className="py-1.5 text-gray-700 font-mono">{m.model}</td>
                                             <td className="py-1.5 hidden sm:table-cell text-gray-500">{m.provider}</td>
                                             <td className="py-1.5 text-right text-gray-600">{m.calls}</td>
+                                            <td className="py-1.5 text-right text-gray-400" />
                                             <td className="py-1.5 text-right font-medium text-indigo-700">${m.cost_usd.toFixed(4)}</td>
                                           </tr>
                                         ))}
@@ -241,6 +255,7 @@ export default function CostsByBookPage() {
                                       <tr className="text-gray-500 border-b border-gray-100">
                                         <th className="text-left py-1.5">Job ID</th>
                                         <th className="text-right py-1.5">Calls</th>
+                                        <th className="text-right py-1.5">Time</th>
                                         <th className="text-right py-1.5">Cost</th>
                                       </tr>
                                     </thead>
@@ -249,6 +264,7 @@ export default function CostsByBookPage() {
                                         <tr key={j.job_id} className="border-b border-gray-50 last:border-0">
                                           <td className="py-1.5 text-gray-700 font-mono">{j.job_id.slice(0, 12)}…</td>
                                           <td className="py-1.5 text-right text-gray-600">{j.calls}</td>
+                                          <td className="py-1.5 text-right text-gray-500 font-mono">{fmtDur(j.duration_sec)}</td>
                                           <td className="py-1.5 text-right font-medium text-indigo-700">${j.cost_usd.toFixed(4)}</td>
                                         </tr>
                                       ))}
@@ -258,7 +274,7 @@ export default function CostsByBookPage() {
                               )}
                               {details && (
                                 <p className="text-[10px] text-gray-400 mt-2 text-right">
-                                  Total: ${details.total_cost_usd.toFixed(4)} · {details.total_calls} calls
+                                  Total: ${details.total_cost_usd.toFixed(4)} · {details.total_calls} calls · {fmtDur(details.total_duration_sec)}
                                 </p>
                               )}
                             </div>

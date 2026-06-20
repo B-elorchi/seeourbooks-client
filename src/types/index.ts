@@ -181,24 +181,27 @@ export interface BookCostModel {
 }
 
 export interface BookCostStep {
-  step:     string
-  calls:    number
-  cost_usd: number
-  models:   BookCostModel[]
+  step:         string
+  calls:        number
+  cost_usd:     number
+  duration_sec: number
+  models:       BookCostModel[]
 }
 
 export interface BookCostJob {
-  job_id:   string
-  calls:    number
-  cost_usd: number
+  job_id:       string
+  calls:        number
+  cost_usd:     number
+  duration_sec: number
 }
 
 export interface BookCostDetails {
-  book_id:        string
-  total_cost_usd: number
-  total_calls:    number
-  steps:          BookCostStep[]
-  jobs:           BookCostJob[]
+  book_id:            string
+  total_cost_usd:     number
+  total_calls:        number
+  total_duration_sec: number
+  steps:              BookCostStep[]
+  jobs:               BookCostJob[]
 }
 
 export interface BookCoverPrompt {
