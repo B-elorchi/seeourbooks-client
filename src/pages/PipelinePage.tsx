@@ -207,11 +207,12 @@ function jobSource(job: { input?: { source?: string } }): string {
   return job.input?.source ?? 'catalog'
 }
 
-const PAGE_SIZE = 50
+const PAGE_SIZES = [25, 50, 100, 500] as const
 
 export default function PipelinePage() {
-  const [page, setPage] = useState(0)
-  const { data: jobs = [], isLoading: loading } = usePipelineJobs(PAGE_SIZE, page * PAGE_SIZE)
+  const [pageSize, setPageSize] = useState(50)
+  const [page, setPage]         = useState(0)
+  const { data: jobs = [], isLoading: loading, isFetching } = usePipelineJobs(pageSize, page * pageSize)
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -230,11 +231,10 @@ export default function PipelinePage() {
   // EPUB preview modal
   const [epubPreview, setEpubPreview] = useState<string | null>(null)
 
-  const selectedJob = jobs.find(j => j.id === selectedId) || null
-  const { data: detailedJob } = useJobStatus(
-    selectedId && selectedJob?.status === 'running' ? selectedId : null
-  )
-  const selected = detailedJob || selectedJob
+  // List returns lightweight rows (metadata extracted, no full result).
+  // Always fetch full detail via useJobStatus when a job is selected.
+  const { data: detailedJob } = useJobStatus(selectedId)
+  const selected = detailedJob || null
   const { invalidateAll } = useInvalidatePipeline()
 
   // Clear checkboxes whenever the selected job changes
@@ -372,15 +372,14 @@ export default function PipelinePage() {
         </div>
 
         {/* Job list */}
-        <div className="overflow-auto flex-1">
+        <div className={`overflow-auto flex-1 transition-opacity ${isFetching && !loading ? 'opacity-60' : 'opacity-100'}`}>
           {loading && <p className="text-xs text-gray-500 p-4">Loading…</p>}
           {!loading && filteredJobs.length === 0 && (
             <p className="text-xs text-gray-400 p-4">No jobs in this category.</p>
           )}
           {filteredJobs.map(job => {
-            const jr = typeof job.result === 'string'
-              ? (() => { try { return JSON.parse(job.result as string) } catch { return null } })()
-              : job.result
+            // Lightweight list rows: metadata extracted server-side, no full result
+            const meta = (job as unknown as { metadata?: { title?: string; author?: string } }).metadata
             const src = jobSource(job as { input?: { source?: string } })
             const srcBadge = SOURCE_BADGE[src]
             const srcLabel = SOURCE_LABEL[src]
@@ -391,7 +390,7 @@ export default function PipelinePage() {
                 }`}>
                 <div className="flex items-center justify-between mb-1 gap-2">
                   <span className="text-xs font-medium text-gray-800 truncate flex-1">
-                    {jr?.metadata?.title ?? job.book_id}
+                    {meta?.title ?? job.book_id}
                   </span>
                   <StatusBadge status={job.status} />
                 </div>
@@ -401,7 +400,7 @@ export default function PipelinePage() {
                       {srcLabel}
                     </span>
                   )}
-                  <span className="truncate">{jr?.metadata?.author ?? '—'}</span>
+                  <span className="truncate">{meta?.author ?? '—'}</span>
                   <span>·</span>
                   <span className="shrink-0">{timeAgo(job.created_at)}</span>
                 </div>
@@ -411,23 +410,30 @@ export default function PipelinePage() {
         </div>
 
         {/* Pagination controls */}
-        <div className="border-t border-gray-200 px-3 py-2 flex items-center justify-between bg-white shrink-0">
+        <div className="border-t border-gray-200 px-3 py-2 flex items-center gap-2 bg-white shrink-0">
           <button
             disabled={page === 0}
             onClick={() => { setPage(p => p - 1); setSelectedId(null) }}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            <i className="ti ti-chevron-left text-sm" /> Prev
+            <i className="ti ti-chevron-left text-sm" />
           </button>
-          <span className="text-[10px] text-gray-400">
-            {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + jobs.length}
+          <span className="text-[10px] text-gray-400 flex-1 text-center">
+            {page * pageSize + 1}–{page * pageSize + jobs.length}
           </span>
-          <button
-            disabled={jobs.length < PAGE_SIZE}
-            onClick={() => { setPage(p => p + 1); setSelectedId(null) }}
-            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          <select
+            value={pageSize}
+            onChange={e => { setPageSize(Number(e.target.value)); setPage(0); setSelectedId(null) }}
+            className="text-[10px] border border-gray-200 rounded px-1 py-0.5 text-gray-600 bg-white focus:outline-none"
           >
-            Next <i className="ti ti-chevron-right text-sm" />
+            {PAGE_SIZES.map(s => <option key={s} value={s}>{s} / page</option>)}
+          </select>
+          <button
+            disabled={jobs.length < pageSize}
+            onClick={() => { setPage(p => p + 1); setSelectedId(null) }}
+            className="flex items-center gap-1 px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <i className="ti ti-chevron-right text-sm" />
           </button>
         </div>
       </div>
