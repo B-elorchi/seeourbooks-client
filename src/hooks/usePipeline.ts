@@ -8,13 +8,18 @@ export const pipelineKeys = {
   job: (id: string) => [...pipelineKeys.all, 'job', id] as const,
 }
 
-export function usePipelineJobs(limit = 50, offset = 0) {
+export function usePipelineJobs(limit = 50, offset = 0, status?: string) {
+  const isFiltered = !!status && status !== 'all'
   return useQuery<PipelineJob[]>({
-    queryKey: [...pipelineKeys.jobs(), limit, offset],
-    queryFn:  () => listJobs(limit, offset),
-    placeholderData: keepPreviousData,  // show old page while next page loads
-    refetchInterval: 3000,
-    staleTime: 5000,
+    queryKey: [...pipelineKeys.jobs(), limit, offset, status ?? 'all'],
+    queryFn:  () => listJobs(isFiltered ? 2000 : limit, isFiltered ? 0 : offset, status),
+    placeholderData: keepPreviousData,
+    refetchInterval: (query) => {
+      const data = query.state.data as PipelineJob[] | undefined
+      const hasActive = data?.some(j => j.status === 'running' || j.status === 'queued')
+      return hasActive ? 5000 : 15000
+    },
+    staleTime: 4000,
     retry: 3,
   })
 }

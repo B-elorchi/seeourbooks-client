@@ -212,9 +212,15 @@ const PAGE_SIZES = [25, 50, 100, 500] as const
 export default function PipelinePage() {
   const [pageSize, setPageSize] = useState(50)
   const [page, setPage]         = useState(0)
-  const { data: jobs = [], isLoading: loading, isFetching } = usePipelineJobs(pageSize, page * pageSize)
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+
+  const isFiltered = statusFilter !== 'all'
+  const { data: jobs = [], isLoading: loading, isFetching } = usePipelineJobs(
+    pageSize,
+    page * pageSize,
+    isFiltered ? statusFilter : undefined,
+  )
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [retrying,   setRetrying]   = useState(false)
   const [retryMsg,   setRetryMsg]   = useState<string | null>(null)
@@ -338,7 +344,7 @@ export default function PipelinePage() {
             ] as { key: StatusFilter; label: string; color: string; active: string; count: number }[]).map(s => (
               <button
                 key={s.key}
-                onClick={() => setStatusFilter(prev => prev === s.key ? 'all' : s.key)}
+                onClick={() => { setStatusFilter(prev => prev === s.key ? 'all' : s.key); setPage(0) }}
                 className={`px-2 py-0.5 rounded-full font-medium transition-colors ${
                   statusFilter === s.key ? s.active : `${s.color} hover:bg-gray-100`
                 }`}
@@ -409,8 +415,8 @@ export default function PipelinePage() {
           })}
         </div>
 
-        {/* Pagination controls */}
-        <div className="border-t border-gray-200 px-3 py-2 flex items-center gap-2 bg-white shrink-0">
+        {/* Pagination controls — hidden when a status filter is active (server returns all matches) */}
+        <div className={`border-t border-gray-200 px-3 py-2 flex items-center gap-2 bg-white shrink-0 ${isFiltered ? 'hidden' : ''}`}>
           <button
             disabled={page === 0}
             onClick={() => { setPage(p => p - 1); setSelectedId(null) }}
