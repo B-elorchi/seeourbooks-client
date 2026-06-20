@@ -89,6 +89,19 @@ export async function rerunSteps(
   return res.json()
 }
 
+export async function skipSteps(
+  jobId: string,
+  steps: string[],
+): Promise<{ job_id: string; status: string; skipped: string[] }> {
+  const res = await apiFetch(`/api/admin/jobs/${jobId}/skip-steps`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ steps }),
+  })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 // ── Costs ─────────────────────────────────────────────────────────────────────
 
 export async function getCosts(days = 30): Promise<AdminCosts> {

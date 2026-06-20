@@ -1,6 +1,6 @@
 import { useState, useRef, lazy, Suspense } from 'react'
 import { usePipelineJobs, useJobStatus, useInvalidatePipeline } from '../hooks/usePipeline'
-import { retryJob, rerunSteps, cancelJob } from '../api/admin'
+import { retryJob, rerunSteps, cancelJob, skipSteps } from '../api/admin'
 import type { PipelineResult } from '../types'
 import StatusBadge from '../components/StatusBadge'
 
@@ -279,6 +279,24 @@ export default function PipelinePage() {
       await rerunSteps(selected.id, steps)
       const label = steps.length === 1 ? steps[0] : `${steps.length} steps`
       setRegenMsg(`Queued: ${label} ✓`)
+      setTimeout(() => setRegenMsg(null), 4000)
+      setCheckedSteps(new Set())
+      invalidateAll()
+    } catch (err) {
+      setRegenMsg(`Error: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setRegenRunning(false)
+    }
+  }
+
+  async function handleSkip(steps: string[]) {
+    if (!selected || !steps.length) return
+    setRegenRunning(true)
+    setRegenMsg(null)
+    try {
+      const res = await skipSteps(selected.id, steps)
+      const label = steps.length === 1 ? steps[0] : `${steps.length} steps`
+      setRegenMsg(`Skipped ${label} → ${res.status} ✓`)
       setTimeout(() => setRegenMsg(null), 4000)
       setCheckedSteps(new Set())
       invalidateAll()
@@ -590,6 +608,20 @@ export default function PipelinePage() {
                                 </svg>
                             }
                             Regen {checkedSteps.size} step{checkedSteps.size > 1 ? 's' : ''}
+                          </button>
+                        )}
+                        {/* Skip Selected — mark steps as skipped (e.g. failed optional steps) */}
+                        {checkedSteps.size > 0 && (
+                          <button
+                            onClick={() => handleSkip([...checkedSteps])}
+                            disabled={regenRunning}
+                            title="Mark the selected steps as skipped and recompute the job status (use for optional steps that failed, e.g. on insufficient credits)"
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+                          >
+                            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13 5l7 7-7 7M5 5l7 7-7 7" />
+                            </svg>
+                            Skip {checkedSteps.size} step{checkedSteps.size > 1 ? 's' : ''}
                           </button>
                         )}
                         {/* Regen All */}
