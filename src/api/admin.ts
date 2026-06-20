@@ -102,6 +102,30 @@ export async function skipSteps(
   return res.json()
 }
 
+// ── Batch operations ────────────────────────────────────────────────────────
+
+export async function batchBackfillArabic(
+  limit = 100,
+  dryRun = false,
+): Promise<{ ok: boolean; enqueued?: number; candidates: number; book_ids?: string[]; dry_run?: boolean }> {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (dryRun) qs.set('dry_run', 'true')
+  const res = await apiFetch(`/api/admin/batch/backfill-arabic?${qs}`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
+export async function batchRegenPartial(
+  limit = 200,
+  force = false,
+): Promise<{ ok: boolean; enqueued: number }> {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (force) qs.set('force', 'true')
+  const res = await apiFetch(`/api/admin/batch/regen-partial?${qs}`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 // ── Costs ─────────────────────────────────────────────────────────────────────
 
 export async function getCosts(days = 30): Promise<AdminCosts> {

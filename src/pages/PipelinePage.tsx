@@ -1,6 +1,6 @@
 import { useState, useRef, lazy, Suspense } from 'react'
 import { usePipelineJobs, useJobStatus, useInvalidatePipeline } from '../hooks/usePipeline'
-import { retryJob, rerunSteps, cancelJob, skipSteps } from '../api/admin'
+import { retryJob, rerunSteps, cancelJob, skipSteps, batchBackfillArabic, batchRegenPartial } from '../api/admin'
 import type { PipelineResult } from '../types'
 import StatusBadge from '../components/StatusBadge'
 
@@ -234,6 +234,10 @@ export default function PipelinePage() {
   const [cancelling, setCancelling] = useState(false)
   const [cancelMsg,  setCancelMsg]  = useState<string | null>(null)
 
+  // Batch operations (backfill Arabic / regen all partial)
+  const [batchRunning, setBatchRunning] = useState(false)
+  const [batchMsg,     setBatchMsg]     = useState<string | null>(null)
+
   // EPUB preview modal
   const [epubPreview, setEpubPreview] = useState<string | null>(null)
 
@@ -304,6 +308,55 @@ export default function PipelinePage() {
       setRegenMsg(`Error: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
       setRegenRunning(false)
+    }
+  }
+
+  async function handleBackfillArabic() {
+    if (batchRunning) return
+    setBatchRunning(true)
+    setBatchMsg('Scanning books…')
+    try {
+      const preview = await batchBackfillArabic(200, true)
+      if (!preview.candidates) {
+        setBatchMsg('No books need Arabic backfill ✓')
+        return
+      }
+      if (!window.confirm(
+        `${preview.candidates} book(s) have an English summary but no Arabic. ` +
+        `Launch translate + Arabic audio for them?`
+      )) {
+        setBatchMsg(null)
+        return
+      }
+      const res = await batchBackfillArabic(preview.candidates, false)
+      setBatchMsg(`Queued Arabic backfill for ${res.enqueued ?? 0} book(s) ✓`)
+      invalidateAll()
+    } catch (err) {
+      setBatchMsg(`Error: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBatchRunning(false)
+      setTimeout(() => setBatchMsg(null), 6000)
+    }
+  }
+
+  async function handleRegenPartial() {
+    if (batchRunning) return
+    const partialCount = jobs.filter(j => j.status === 'partial').length
+    if (!window.confirm(
+      `Re-run incomplete steps for ALL partial jobs${partialCount ? ` (${partialCount} shown)` : ''}? ` +
+      `Already-done steps are skipped.`
+    )) return
+    setBatchRunning(true)
+    setBatchMsg('Queuing partial jobs…')
+    try {
+      const res = await batchRegenPartial(500, false)
+      setBatchMsg(`Re-queued ${res.enqueued} partial job(s) ✓`)
+      invalidateAll()
+    } catch (err) {
+      setBatchMsg(`Error: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBatchRunning(false)
+      setTimeout(() => setBatchMsg(null), 6000)
     }
   }
 
@@ -470,6 +523,35 @@ export default function PipelinePage() {
 
       {/* ── Detail panel ─────────────────────────────────────────────────── */}
       <div className="flex-1 overflow-auto p-6">
+        {/* Batch actions toolbar — always visible */}
+        <div className="mb-5 flex items-center gap-2 flex-wrap">
+          <button
+            onClick={handleBackfillArabic}
+            disabled={batchRunning}
+            title="Find catalog books that have an English summary but no Arabic one, and run translate + Arabic audio for them (reuses the existing summary — no re-summarization)."
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+          >
+            {batchRunning
+              ? <span className="inline-block w-3 h-3 border border-white/40 border-t-white rounded-full animate-spin" />
+              : <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 5h12M9 3v2m1.048 9.5A18.022 18.022 0 016.412 9m6.088 9h7M11 21l5-10 5 10M12.751 5C11.783 10.77 8.07 15.61 3 18.129" /></svg>}
+            Backfill Arabic (missing)
+          </button>
+          <button
+            onClick={handleRegenPartial}
+            disabled={batchRunning}
+            title="Re-run incomplete steps for every job stuck in 'partial' status. Already-done steps are skipped."
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-400 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8 8 0 01-14.83-3M14.418 15H20" /></svg>
+            Regen all partial
+          </button>
+          {batchMsg && (
+            <span className={`text-xs ${batchMsg.startsWith('Error') ? 'text-red-600' : 'text-emerald-700'}`}>
+              {batchMsg}
+            </span>
+          )}
+        </div>
+
         {!selected && (
           <div className="h-full flex items-center justify-center text-gray-400 text-sm">
             Select a job to view details
