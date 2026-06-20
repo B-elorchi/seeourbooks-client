@@ -20,6 +20,19 @@ const OR_IMG_MODELS = [
 const OR_CLAUDE = CLAUDE_MODELS.map(m => `anthropic/${m}`)
 const OR_GPT    = GPT_CHAT_MODELS.map(m => `openai/${m}`)
 
+// Free OpenRouter models (the `:free` suffix is required — without it OpenRouter
+// bills the paid tier). Handy for cheap summary/translate passes. Note: free
+// tiers have tight rate limits, so on big batches calls often fall back to the
+// paid chain — see ENABLE_MODEL_FALLBACK / FALLBACK_<model>.
+const OR_FREE = [
+  'deepseek/deepseek-chat-v3-0324:free',
+  'deepseek/deepseek-r1-0528:free',
+  'google/gemini-2.0-flash-exp:free',
+  'meta-llama/llama-3.3-70b-instruct:free',
+  'qwen/qwen-2.5-72b-instruct:free',
+  'mistralai/mistral-small-3.1-24b-instruct:free',
+]
+
 // ── Option types ──────────────────────────────────────────────────────────────
 type OptGroup  = { group: string; items: string[] }
 type OptionList = Array<string | OptGroup>
@@ -148,8 +161,8 @@ const PROVIDER_GROUPS: Array<{
   {
     title: 'Summarization',
     rows: [
-      { key: 'MODEL_CHUNK',  label: 'Chapter model (Pass 1)',  options: [g('🔀 OpenRouter → OpenAI', OR_GPT), g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE)] },
-      { key: 'MODEL_SONNET', label: 'Full summary (Pass 2)',   options: [g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE)] },
+      { key: 'MODEL_CHUNK',  label: 'Chapter model (Pass 1)',  options: [g('🆓 OpenRouter — Free', OR_FREE), g('🔀 OpenRouter → OpenAI', OR_GPT), g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE)], type: 'combo', placeholder: 'Pick a Pass 1 model…' },
+      { key: 'MODEL_SONNET', label: 'Full summary (Pass 2)',   options: [g('🆓 OpenRouter — Free', OR_FREE), g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE), g('🔀 OpenRouter → OpenAI', OR_GPT)], type: 'combo', placeholder: 'Pick a Pass 2 model…' },
       { key: 'MODEL_OPUS',   label: 'Tashkeel / Review (AR)',  options: [g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE)] },
       { key: 'CHUNK_WORDS_EN',         label: 'Chunk size — words per chunk (EN)',               options: [], type: 'text', placeholder: '1500' },
       { key: 'CHUNK_WORDS_AR',         label: 'Chunk size — words per chunk (AR)',               options: [], type: 'text', placeholder: '1500' },
@@ -166,7 +179,7 @@ const PROVIDER_GROUPS: Array<{
       { key: 'SUMMARY_QA_MODEL',      label: 'Coverage check model (scores 0-100)',             options: [g('🔀 OpenRouter → DeepSeek', ['deepseek/deepseek-chat', 'deepseek/deepseek-r1', 'deepseek/deepseek-chat-v3.1']), g('🔀 OpenRouter → OpenAI', OR_GPT), g('🟣 Anthropic — Native API', CLAUDE_MODELS)], type: 'combo', placeholder: 'deepseek/deepseek-chat' },
       { key: 'SUMMARY_QA_THRESHOLD',  label: 'Min coverage score to allow audio (%)',           options: [], type: 'text', placeholder: '70' },
       { key: 'TRANSLATE_SUMMARY_ENABLED', label: 'Translate summary to other language (EN↔AR) — default when no explicit translate step', options: ['true', 'false'] },
-      { key: 'TRANSLATE_MODEL',       label: 'Translation model',                               options: [g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE), g('🔀 OpenRouter → OpenAI', OR_GPT), g('🔀 OpenRouter → DeepSeek', ['deepseek/deepseek-chat'])], type: 'combo', placeholder: 'Pick a translation model…' },
+      { key: 'TRANSLATE_MODEL',       label: 'Translation model',                               options: [g('🆓 OpenRouter — Free', OR_FREE), g('🔀 OpenRouter → OpenAI', OR_GPT), g('🟣 Anthropic — Native API', CLAUDE_MODELS), g('🔀 OpenRouter → Anthropic', OR_CLAUDE), g('🔀 OpenRouter → DeepSeek', ['deepseek/deepseek-chat'])], type: 'combo', placeholder: 'Pick a translation model…' },
     ],
   },
   {
