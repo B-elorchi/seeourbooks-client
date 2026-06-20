@@ -9,16 +9,13 @@ export const pipelineKeys = {
   job: (id: string) => [...pipelineKeys.all, 'job', id] as const,
 }
 
-// Hook to fetch all jobs with caching
-export function usePipelineJobs() {
+// Hook to fetch all jobs with caching and pagination
+export function usePipelineJobs(limit = 50, offset = 0) {
   return useQuery<PipelineJob[]>({
-    queryKey: pipelineKeys.jobs(),
-    queryFn: () => listJobs(),
-    // Poll every 3 seconds for live updates
+    queryKey: [...pipelineKeys.jobs(), limit, offset],
+    queryFn: () => listJobs(limit, offset),
     refetchInterval: 3000,
-    // Keep data fresh for 5 seconds
     staleTime: 5000,
-    // Retry failed requests 3 times
     retry: 3,
   })
 }

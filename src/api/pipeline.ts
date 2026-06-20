@@ -23,8 +23,8 @@ export async function getJobOutput(bookId: string): Promise<PipelineResult> {
   return res.json()
 }
 
-export async function listJobs(limit = 50): Promise<PipelineJob[]> {
-  const res = await apiFetch(`/api/pipeline/jobs?limit=${limit}`)
+export async function listJobs(limit = 50, offset = 0): Promise<PipelineJob[]> {
+  const res = await apiFetch(`/api/pipeline/jobs?limit=${limit}&offset=${offset}`)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }

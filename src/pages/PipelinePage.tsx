@@ -207,8 +207,11 @@ function jobSource(job: { input?: { source?: string } }): string {
   return job.input?.source ?? 'catalog'
 }
 
+const PAGE_SIZE = 50
+
 export default function PipelinePage() {
-  const { data: jobs = [], isLoading: loading } = usePipelineJobs()
+  const [page, setPage] = useState(0)
+  const { data: jobs = [], isLoading: loading } = usePipelineJobs(PAGE_SIZE, page * PAGE_SIZE)
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -405,6 +408,27 @@ export default function PipelinePage() {
               </button>
             )
           })}
+        </div>
+
+        {/* Pagination controls */}
+        <div className="border-t border-gray-200 px-3 py-2 flex items-center justify-between bg-white shrink-0">
+          <button
+            disabled={page === 0}
+            onClick={() => { setPage(p => p - 1); setSelectedId(null) }}
+            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            <i className="ti ti-chevron-left text-sm" /> Prev
+          </button>
+          <span className="text-[10px] text-gray-400">
+            {page * PAGE_SIZE + 1}–{page * PAGE_SIZE + jobs.length}
+          </span>
+          <button
+            disabled={jobs.length < PAGE_SIZE}
+            onClick={() => { setPage(p => p + 1); setSelectedId(null) }}
+            className="flex items-center gap-1 px-2.5 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+          >
+            Next <i className="ti ti-chevron-right text-sm" />
+          </button>
         </div>
       </div>
 
