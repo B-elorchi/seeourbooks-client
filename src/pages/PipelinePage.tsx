@@ -250,12 +250,18 @@ export default function PipelinePage() {
     if (checkedSteps.size > 0) setCheckedSteps(new Set())
   }
 
-  async function handleRetry(jobId: string) {
+  async function handleRetry(jobId: string, steps?: string[]) {
     setRetrying(true)
     setRetryMsg(null)
     try {
-      await retryJob(jobId)
-      setRetryMsg('Queued ✓')
+      if (steps && steps.length > 0) {
+        await rerunSteps(jobId, steps, true)
+        const label = steps.length === 1 ? steps[0] : `${steps.length} steps`
+        setRetryMsg(`Queued: ${label} ✓`)
+      } else {
+        await retryJob(jobId)
+        setRetryMsg('Queued ✓')
+      }
       setTimeout(() => setRetryMsg(null), 3000)
       invalidateAll()
     } catch (err) {
@@ -514,7 +520,7 @@ export default function PipelinePage() {
                         </span>
                       )}
                       <button
-                        onClick={() => handleRetry(selected.id)}
+                        onClick={() => handleRetry(selected.id, failedSteps)}
                         disabled={retrying}
                         title={tipText}
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
