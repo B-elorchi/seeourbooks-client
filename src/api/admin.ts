@@ -126,6 +126,17 @@ export async function batchRegenPartial(
   return res.json()
 }
 
+export async function batchForceCompletePartial(
+  limit = 1000,
+  dryRun = false,
+): Promise<{ ok: boolean; completed?: number; scanned?: number; partial_jobs?: number; dry_run?: boolean }> {
+  const qs = new URLSearchParams({ limit: String(limit) })
+  if (dryRun) qs.set('dry_run', 'true')
+  const res = await apiFetch(`/api/admin/batch/force-complete-partial?${qs}`, { method: 'POST' })
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
 // ── Costs ─────────────────────────────────────────────────────────────────────
 
 export async function getCosts(days = 30): Promise<AdminCosts> {

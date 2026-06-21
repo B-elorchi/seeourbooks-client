@@ -1,6 +1,6 @@
 import { useState, useRef, lazy, Suspense } from 'react'
 import { usePipelineJobs, useJobStatus, useInvalidatePipeline } from '../hooks/usePipeline'
-import { retryJob, rerunSteps, cancelJob, skipSteps, batchBackfillArabic, batchRegenPartial } from '../api/admin'
+import { retryJob, rerunSteps, cancelJob, skipSteps, batchBackfillArabic, batchRegenPartial, batchForceCompletePartial } from '../api/admin'
 import type { PipelineResult } from '../types'
 import StatusBadge from '../components/StatusBadge'
 
@@ -360,6 +360,35 @@ export default function PipelinePage() {
     }
   }
 
+  async function handleForceCompletePartial() {
+    if (batchRunning) return
+    setBatchRunning(true)
+    setBatchMsg('Scanning partial jobs…')
+    try {
+      const preview = await batchForceCompletePartial(2000, true)
+      const n = preview.partial_jobs ?? 0
+      if (!n) {
+        setBatchMsg('No partial jobs ✓')
+        return
+      }
+      if (!window.confirm(
+        `Force ${n} partial job(s) to COMPLETE by skipping their missing/failed steps? ` +
+        `This does NOT generate the missing steps — it just marks them skipped so the books count as done.`
+      )) {
+        setBatchMsg(null)
+        return
+      }
+      const res = await batchForceCompletePartial(2000, false)
+      setBatchMsg(`Marked ${res.completed ?? 0} job(s) complete ✓`)
+      invalidateAll()
+    } catch (err) {
+      setBatchMsg(`Error: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setBatchRunning(false)
+      setTimeout(() => setBatchMsg(null), 6000)
+    }
+  }
+
   async function handleCancel(jobId: string) {
     setCancelling(true)
     setCancelMsg(null)
@@ -544,6 +573,15 @@ export default function PipelinePage() {
           >
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8 8 0 01-14.83-3M14.418 15H20" /></svg>
             Regen all partial
+          </button>
+          <button
+            onClick={handleForceCompletePartial}
+            disabled={batchRunning}
+            title="Force every 'partial' job to 'done' by marking its missing/failed steps as skipped. Does NOT generate the missing steps — just clears the partial status."
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-600 hover:bg-slate-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            Force complete partial
           </button>
           {batchMsg && (
             <span className={`text-xs ${batchMsg.startsWith('Error') ? 'text-red-600' : 'text-emerald-700'}`}>
