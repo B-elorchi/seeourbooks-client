@@ -7,6 +7,7 @@ import { PageShell, PageHeader } from './_shared'
 const ALL_STEPS: { id: string; label: string }[] = [
   { id: 'summarize',        label: 'Summarize'           },
   { id: 'translate',        label: 'Translate'           },
+  { id: 'translate_chapters', label: 'Translate (chapters)' },
   { id: 'audio_full',       label: 'Audio (full)'        },
   { id: 'audio_full_translate', label: 'Audio (full, translated)' },
   { id: 'audio_chapters',   label: 'Audio (chapters)'   },

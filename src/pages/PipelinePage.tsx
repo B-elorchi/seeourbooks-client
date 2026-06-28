@@ -3,6 +3,7 @@ import { usePipelineJobs, useJobStatus, useInvalidatePipeline } from '../hooks/u
 import { retryJob, rerunSteps, cancelJob, skipSteps, batchBackfillArabic, batchRegenPartial, batchForceCompletePartial } from '../api/admin'
 import type { PipelineResult } from '../types'
 import StatusBadge from '../components/StatusBadge'
+import { calculateJobETA, formatETA } from '../utils/eta'
 
 // Lazy-loaded so the heavy epubjs library only downloads when a preview opens.
 const EpubReader = lazy(() => import('../components/EpubReader'))
@@ -434,6 +435,13 @@ export default function PipelinePage() {
   const videoEntry   = r?.video     ? Object.entries(r.video)[0]     : null
   const videoUrl     = videoEntry?.[1]?.url ?? r?.files?.video ?? null
 
+  const reqSteps     = selected?.input?.steps || []
+  const stepsObj     = r?.steps || {}
+  const compSteps    = Object.entries(stepsObj).filter(([_, s]) => s === 'done').map(([k]) => k)
+  const numChapters  = Array.isArray(r?.chapters) ? r.chapters.length : 10
+  const etaSec       = selected ? calculateJobETA(reqSteps, compSteps, numChapters) : 0
+  const etaStr       = formatETA(etaSec)
+
   return (
     <div className="flex h-full">
       {/* ── Job list sidebar ─────────────────────────────────────────────── */}
@@ -613,6 +621,9 @@ export default function PipelinePage() {
                 <StatusBadge status={selected.status} />
                 {r?.processing_time && (
                   <span className="text-xs text-gray-500">{r.processing_time}</span>
+                )}
+                {selected.status === 'running' && etaStr && (
+                  <span className="text-xs text-indigo-500 font-medium">ETA {etaStr}</span>
                 )}
                 {selected.retry_count > 0 && (
                   <span className="text-xs px-2 py-0.5 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200">

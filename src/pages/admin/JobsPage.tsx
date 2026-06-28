@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { getAdminJobs, retryJob, rerunSteps, cancelJob, deleteJob, autoRetryCreditFailures } from '../../api/admin'
+import { calculateJobETA, formatETA } from '../../utils/eta'
 import { PageShell, PageHeader } from './_shared'
 import StatusBadge from '../../components/StatusBadge'
 import type { PipelineJob } from '../../types'
@@ -215,6 +216,13 @@ export default function JobsPage() {
                 const canCancel    = job.status === 'running' || job.status === 'queued'
                 const retryCount   = job.retry_count ?? 0
                 const maxRetries   = job.max_retries ?? 3
+                
+                // ETA Calculation
+                const reqSteps     = job.input?.steps || []
+                const compSteps    = Object.entries(steps).filter(([_, s]) => s === 'done').map(([k]) => k)
+                const numChapters  = Array.isArray(jr?.chapters) ? jr.chapters.length : 10
+                const etaSec       = calculateJobETA(reqSteps, compSteps, numChapters)
+                const etaStr       = formatETA(etaSec)
 
                 return (
                   <tr key={job.id} className="hover:bg-gray-50 transition-colors align-top">
@@ -307,7 +315,12 @@ export default function JobsPage() {
                         </span>
                       ) : <span className="text-gray-400">—</span>}
                     </td>
-                    <td className="px-5 py-3 text-xs text-gray-500">{jr?.processing_time ?? '—'}</td>
+                    <td className="px-5 py-3 text-xs text-gray-500">
+                      {jr?.processing_time ?? '-'}
+                      {job.status === 'running' && etaStr && (
+                        <div className="mt-1 text-indigo-500 font-medium">ETA {etaStr}</div>
+                      )}
+                    </td>
                     <td className="px-5 py-3 text-xs text-gray-500">{timeAgo(job.created_at)}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-1.5 justify-end">
