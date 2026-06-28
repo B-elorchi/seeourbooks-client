@@ -31,3 +31,16 @@ export async function getMyJobs(limit = 100): Promise<MyJob[]> {
   if (!res.ok) throw new Error(await res.text())
   return res.json()
 }
+
+export interface MyUsage {
+  total_tokens: number
+  by_book: Record<string, number>
+  by_provider: Record<string, number>
+}
+
+export async function getMyUsage(): Promise<MyUsage> {
+  const res = await apiFetch('/api/me/usage')
+  if (!res.ok) throw new Error(await res.text())
+  return res.json()
+}
+
