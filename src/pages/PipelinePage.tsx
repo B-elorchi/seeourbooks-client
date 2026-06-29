@@ -215,8 +215,9 @@ export default function PipelinePage() {
   const [page, setPage]         = useState(0)
   const [sourceFilter, setSourceFilter] = useState<SourceFilter>('all')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
+  const [dateFilter, setDateFilter] = useState<string>('')
 
-  const isFiltered = statusFilter !== 'all'
+  const isFiltered = statusFilter !== 'all' || !!dateFilter
   const { data: jobs = [], isLoading: loading, isFetching } = usePipelineJobs(
     pageSize,
     page * pageSize,

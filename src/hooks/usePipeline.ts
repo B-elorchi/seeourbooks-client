@@ -8,11 +8,11 @@ export const pipelineKeys = {
   job: (id: string) => [...pipelineKeys.all, 'job', id] as const,
 }
 
-export function usePipelineJobs(limit = 50, offset = 0, status?: string) {
+export function usePipelineJobs(limit = 50, offset = 0, status?: string, dateFilter?: string) {
   const isFiltered = !!status && status !== 'all'
   return useQuery<PipelineJob[]>({
-    queryKey: [...pipelineKeys.jobs(), limit, offset, status ?? 'all'],
-    queryFn:  () => listJobs(isFiltered ? 2000 : limit, isFiltered ? 0 : offset, status),
+    queryKey: [...pipelineKeys.jobs(), limit, offset, status ?? 'all', dateFilter ?? 'none'],
+    queryFn:  () => listJobs(isFiltered ? 2000 : limit, isFiltered ? 0 : offset, status, dateFilter),
     placeholderData: keepPreviousData,
     refetchInterval: (query) => {
       const data = query.state.data as PipelineJob[] | undefined

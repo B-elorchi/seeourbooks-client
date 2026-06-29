@@ -23,9 +23,10 @@ export async function getJobOutput(bookId: string): Promise<PipelineResult> {
   return res.json()
 }
 
-export async function listJobs(limit = 50, offset = 0, status?: string): Promise<PipelineJob[]> {
+export async function listJobs(limit = 50, offset = 0, status?: string, dateFilter?: string): Promise<PipelineJob[]> {
   const qs = new URLSearchParams({ limit: String(limit), offset: String(offset) })
   if (status && status !== 'all') qs.set('status', status)
+    if (dateFilter) qs.set('date', dateFilter)
   const res = await apiFetch(`/api/pipeline/jobs?${qs}`)
   if (!res.ok) throw new Error(await res.text())
   return res.json()
